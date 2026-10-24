@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "rooms": {
+      "$code": {
+        "meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid)"
+        },
+        "members": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && ($uid === auth.uid || root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid)"
+          }
+        }
+      }
+    }
+  }
+}

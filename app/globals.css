@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  /* Party palette: deep night background, neon accents. */
+  --stage: #1e1b4b; /* indigo-950 */
+  --like: #22c55e;
+  --nope: #f43f5e;
+}
+
+@theme inline {
+  --color-stage: var(--stage);
+  --color-like: var(--like);
+  --color-nope: var(--nope);
+  --font-sans: var(--font-poppins);
+  --font-display: var(--font-fredoka);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-poppins), system-ui, sans-serif;
+  background: var(--stage);
+  color: white;
+}
