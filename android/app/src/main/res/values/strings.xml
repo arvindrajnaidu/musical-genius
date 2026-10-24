@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Musical Genius</string>
+    <string name="title_activity_main">Musical Genius</string>
+    <string name="package_name">com.musicalgenius.app</string>
+    <string name="custom_url_scheme">com.musicalgenius.app</string>
+</resources>
