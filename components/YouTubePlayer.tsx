@@ -60,7 +60,9 @@ export function YouTubePlayer({
   onStarted,
   onEnded,
   onError,
+  className = "aspect-video w-full rounded-3xl",
 }: {
+  className?: string;
   videoId: string;
   paused?: boolean;
   onStarted?: () => void;
@@ -126,7 +128,7 @@ export function YouTubePlayer({
 
   return (
     // The API swaps the inner div for a fixed-size iframe; stretch it to fill.
-    <div className="aspect-video w-full overflow-hidden rounded-3xl bg-black [&_iframe]:h-full [&_iframe]:w-full">
+    <div className={`overflow-hidden bg-black [&_iframe]:h-full [&_iframe]:w-full ${className}`}>
       <div ref={el} />
     </div>
   );

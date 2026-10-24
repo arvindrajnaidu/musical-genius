@@ -17,6 +17,7 @@ import {
   type RoomMeta,
   type RoomSettings,
 } from "@/lib/room";
+import { enterFullscreen, toggleFullscreen } from "@/lib/fullscreen";
 import { YouTubePlayer } from "./YouTubePlayer";
 
 const REVEAL_MS = 8000;
@@ -80,6 +81,7 @@ function Nominating({
   const allDone = players.length > 0 && players.every(([uid]) => count(uid) >= settings.rounds);
 
   async function start() {
+    enterFullscreen();
     setStarting(true);
     const names = Object.fromEntries(Object.entries(members).map(([uid, m]) => [uid, m.name]));
     await startMusic(code, buildQueue(nominations, names, Math.random, settings.rounds));
@@ -177,65 +179,104 @@ function Playing({
     return () => clearTimeout(t);
   }, [failed, index, next]);
 
+  const voted = new Set(songVotes.map(([uid]) => uid));
+  const voterNames = Object.entries(members).filter(([uid]) => uid !== song.by);
+
+  // Full-bleed video with the game drawn over it, Kahoot-on-a-music-video style.
   return (
-    <div className="grid w-full max-w-[1800px] grid-cols-1 items-start gap-10 xl:grid-cols-[1fr_420px]">
-      <div className="relative">
-        <YouTubePlayer
-          videoId={song.videoId}
-          onStarted={() => setStartedAt({ index, at: Date.now() })}
-          onEnded={() => phase === "playing" && reveal()}
-          onError={() => setFailed(index)}
-        />
-        {failed === index && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-stage/90 text-4xl">
-            This one can&apos;t play here. Skipping…
-          </div>
-        )}
-        {phase === "playing" && clip > 0 && startedAt?.index === index && (
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
-            <div
-              key={index}
-              className="h-full origin-left bg-white/70"
-              style={{ animation: `clip-progress ${clip}s linear forwards` }}
-            />
-          </div>
-        )}
+    <div className="fixed inset-0 z-10 cursor-none overflow-hidden bg-black">
+      <YouTubePlayer
+        className="absolute inset-0"
+        videoId={song.videoId}
+        onStarted={() => setStartedAt({ index, at: Date.now() })}
+        onEnded={() => phase === "playing" && reveal()}
+        onError={() => setFailed(index)}
+      />
+      {/* Clicks go to our buttons, never to YouTube's own UI. */}
+      <div className="absolute inset-0" />
+
+      <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-8 pb-24">
+        <p className="rounded-full bg-black/50 px-6 py-3 text-2xl font-semibold backdrop-blur">
+          Song {index + 1} of {queue.length}
+          <span className="text-white/60"> · Room {code}</span>
+        </p>
+        <div className="flex cursor-auto gap-3">
+          <button onClick={toggleFullscreen} aria-label="Full screen" className="rounded-full bg-black/50 px-5 py-3 text-2xl backdrop-blur">
+            ⛶
+          </button>
+          {phase === "playing" ? (
+            <button onClick={reveal} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
+              Reveal
+            </button>
+          ) : (
+            <button onClick={next} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
+              {last ? "Show results" : "Next song"}
+            </button>
+          )}
+        </div>
       </div>
 
-      <aside className="flex flex-col gap-6">
-        <p className="text-xl uppercase tracking-widest text-white/60">
-          Song {index + 1} of {queue.length} · Room {code}
-        </p>
-        <h2 className="font-display text-4xl font-bold leading-tight">{song.title}</h2>
-        {song.channel && <p className="text-2xl text-white/60">{song.channel}</p>}
+      {failed === index && (
+        <div className="absolute inset-0 flex items-center justify-center bg-stage/90 text-5xl">
+          This one can&apos;t play here. Skipping…
+        </div>
+      )}
 
-        {phase === "playing" ? (
-          <>
-            <p className="text-3xl">
-              🗳️ {songVotes.length}
-              {voters > 0 && <span className="text-white/50"> / {voters}</span>} voted
-            </p>
-            <p className="text-xl text-white/50">Who picked it? Find out after the vote.</p>
-            <div className="flex gap-4">
-              <button onClick={reveal} className="rounded-2xl bg-white px-8 py-4 text-2xl font-semibold text-stage">
-                Reveal
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col gap-6 rounded-3xl bg-white/10 p-8">
-            <p className="text-2xl text-white/70">Picked by</p>
-            <p className="font-display text-6xl font-bold">{song.byName}</p>
-            <div className="flex gap-8 text-5xl font-bold">
+      {phase === "reveal" && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-6 rounded-[2.5rem] bg-stage/85 px-20 py-14 text-center shadow-2xl">
+            <p className="text-3xl text-white/70">Picked by</p>
+            <p className="font-display text-8xl font-bold">{song.byName}</p>
+            <div className="flex gap-14 text-7xl font-bold">
               <span className="text-like">👍 {likes}</span>
               <span className="text-nope">👎 {dislikes}</span>
             </div>
-            <button onClick={next} className="self-start rounded-2xl bg-white px-8 py-4 text-2xl font-semibold text-stage">
-              {last ? "Show results" : "Next song"}
-            </button>
           </div>
+        </div>
+      )}
+
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-10 pb-10 pt-32">
+        <div className="flex items-end justify-between gap-10">
+          <div className="min-w-0">
+            <h2 className="truncate font-display text-6xl font-bold leading-tight drop-shadow-lg">{song.title}</h2>
+            {song.channel && <p className="truncate text-3xl text-white/70">{song.channel}</p>}
+          </div>
+          {phase === "playing" && (
+            <div className="flex shrink-0 flex-col items-end gap-3">
+              <p className="text-4xl font-bold drop-shadow-lg">
+                🗳️ {songVotes.length}
+                {voters > 0 && <span className="text-white/60"> / {voters}</span>}
+              </p>
+              <ul className="flex max-w-[40vw] flex-wrap justify-end gap-2">
+                {voterNames.map(([uid, m]) => (
+                  <li
+                    key={uid}
+                    className={`rounded-full px-4 py-1 text-xl font-semibold transition-all ${
+                      voted.has(uid) ? "scale-105 bg-white text-stage" : "bg-white/15 text-white/50"
+                    }`}
+                  >
+                    {voted.has(uid) && "✓ "}
+                    {m.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        {phase === "playing" && (
+          <p className="mt-3 text-xl text-white/50">Vote on your phone · who picked it? Find out after the vote</p>
         )}
-      </aside>
+      </div>
+
+      {phase === "playing" && clip > 0 && startedAt?.index === index && (
+        <div className="absolute inset-x-0 bottom-0 h-2 bg-white/10">
+          <div
+            key={index}
+            className="h-full origin-left bg-white/80"
+            style={{ animation: `clip-progress ${clip}s linear forwards` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

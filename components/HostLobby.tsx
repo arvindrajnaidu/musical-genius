@@ -21,6 +21,7 @@ import { get, ref } from "firebase/database";
 import { db } from "@/lib/firebase/client";
 import { errorMessage } from "@/lib/errors";
 import { load, save } from "@/lib/storage";
+import { enterFullscreen } from "@/lib/fullscreen";
 import { HostGame } from "./HostGame";
 
 const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "Bollywood"];
@@ -206,7 +207,10 @@ export function HostLobby() {
         <div className="flex items-center gap-6">
           <button
             disabled={joinedCount < MIN_PLAYERS}
-            onClick={() => setStatus(code, "nominating")}
+            onClick={() => {
+              enterFullscreen();
+              setStatus(code, "nominating");
+            }}
             className="rounded-2xl bg-like px-10 py-5 text-3xl font-bold text-stage disabled:opacity-40"
           >
             Start game
