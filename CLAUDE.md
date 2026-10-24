@@ -40,9 +40,15 @@ see `lib/room.ts`. Status flow: lobby → nominating → playing → finished. T
 authoritative: it builds the queue, drives `play` (index + playing/reveal) and
 ends clips; phones only write their own nominations and votes.
 
-Song search needs `NEXT_PUBLIC_YOUTUBE_API_KEY` (YouTube Data API v3). Without it
-phones can still paste YouTube links. Videos whose uploader blocks embedding are
-rejected at nomination (oEmbed 401) and skipped on the TV (player errors 101/150).
+Finding songs (`lib/songs.ts`): phones search Apple's iTunes Search API as they
+type (free, no key) and browse themed shelves (`SHELVES`, named like the host's
+theme chips, plus Apple's most-played chart). Tapping a song calls
+`/api/song?artist=&title=` (`app/api/song/route.web.ts`, web build only), which
+spends one YouTube Data API search with the server-side `YOUTUBE_API_KEY` (set in
+Vercel) and is CDN-cached for a month. The native app calls the deployed site
+(`lib/site.ts`, `NEXT_PUBLIC_SITE_URL`). Pasting a YouTube link still works without
+any key. Videos whose uploader blocks embedding are rejected at paste time (oEmbed
+401) and skipped on the TV (player errors 101/150).
 Codes are 4 letters without I, L or O.
 
 Rooms are addressed by query string (`/play?code=ABCD`), never a dynamic route

@@ -1,6 +1,6 @@
-// YouTube helpers for the phone side: turn a pasted link into a video id, look
-// up its title, and (when an API key is configured) search. Playback itself only
-// happens on the TV (components/YouTubePlayer.tsx).
+// YouTube helpers for the phone side: turn a pasted link into a video id and
+// look up its title. Finding songs by name lives in lib/songs.ts. Playback itself
+// only happens on the TV (components/YouTubePlayer.tsx).
 
 export type Song = {
   videoId: string;
@@ -57,44 +57,6 @@ export async function lookupVideo(videoId: string): Promise<Song> {
     /* fall through */
   }
   return { videoId, title: "YouTube video", channel: "" };
-}
-
-const API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
-export const searchAvailable = Boolean(API_KEY);
-
-// YouTube Data API search, limited to embeddable music videos. Each call costs
-// 100 of the default 10,000 daily quota units, so the UI only searches on submit.
-export async function searchSongs(query: string): Promise<Song[]> {
-  if (!API_KEY) return [];
-  const params = new URLSearchParams({
-    part: "snippet",
-    type: "video",
-    videoEmbeddable: "true",
-    videoCategoryId: "10",
-    maxResults: "8",
-    q: query,
-    key: API_KEY,
-  });
-  const r = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
-  if (!r.ok) throw new Error(r.status === 403 ? "search-quota" : "search-failed");
-  const j = await r.json();
-  return (j.items || []).map(
-    (it: { id: { videoId: string }; snippet: { title: string; channelTitle: string } }) => ({
-      videoId: it.id.videoId,
-      title: decodeEntities(it.snippet.title),
-      channel: decodeEntities(it.snippet.channelTitle),
-    }),
-  );
-}
-
-// The Data API returns HTML-escaped titles ("Guns N&#39; Roses").
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
 }
 
 export const thumbUrl = (videoId: string) => `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;

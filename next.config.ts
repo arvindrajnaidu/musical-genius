@@ -21,7 +21,9 @@ const nextConfig: NextConfig = native
       images: { unoptimized: true },
       // "out" is gitignored and matches `webDir` in capacitor.config.ts.
       distDir: "out",
+      pageExtensions: ["tsx", "ts"],
+      env: { NEXT_PUBLIC_NATIVE: "1" },
     }
-  : {};
+  : { pageExtensions: ["web.tsx", "web.ts", "tsx", "ts"] };
 
 export default nextConfig;
