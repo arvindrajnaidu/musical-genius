@@ -15,6 +15,7 @@ import {
 } from "@/lib/room";
 import { errorMessage } from "@/lib/errors";
 import { load, save } from "@/lib/storage";
+import { PlayerGame } from "./PlayerGame";
 
 async function buzz() {
   try {
@@ -86,13 +87,11 @@ export function JoinGame() {
             <h1 className="font-display text-4xl font-bold">You&apos;re in, {name.trim()}!</h1>
             <p className="text-lg text-white/70">Watch the TV. The game starts when the host is ready.</p>
           </>
-        ) : (
-          <>
-            <h1 className="font-display text-4xl font-bold">Nominations are open!</h1>
-            <p className="text-white/50">(Song picking arrives in the next step.)</p>
-          </>
+        ) : null}
+        {meta && meta.status !== "lobby" && settings && (
+          <PlayerGame code={joined.code} uid={joined.uid} meta={meta} settings={settings} />
         )}
-        {settings && (
+        {settings && meta?.status === "lobby" && (
           <p className="rounded-xl bg-white/10 px-4 py-3 text-white/80">
             {theme} · {rounds} {rounds === 1 ? "song" : "songs"} each
           </p>

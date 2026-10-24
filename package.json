@@ -12,7 +12,8 @@
     "cap:assets": "capacitor-assets generate --iconBackgroundColor '#1e1b4b' --iconBackgroundColorDark '#1e1b4b' --splashBackgroundColor '#1e1b4b' --splashBackgroundColorDark '#1e1b4b' --logoSplashScale 0.4",
     "ios": "npm run build:native && cap sync ios && cap open ios",
     "android": "npm run build:native && cap sync android && cap open android",
-    "rules:deploy": "npx -y firebase-tools deploy --only database"
+    "rules:deploy": "npx -y firebase-tools deploy --only database",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -38,6 +39,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.6",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

@@ -25,3 +25,9 @@ body {
   background: var(--stage);
   color: white;
 }
+
+/* TV clip timer: a bar that fills over the clip length (duration set inline). */
+@keyframes clip-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}

@@ -13,6 +13,7 @@ set number of rounds, the song with the most votes wins.
 - `npm run build:native` — static export into `out/` for Capacitor
 - `npm run ios` / `npm run android` — native build, sync, open in Xcode / Android Studio
 - `npm run lint`
+- `npm test` — Vitest for the pure rules in `lib/game.ts` and link parsing in `lib/youtube.ts`
 - `npm run rules:deploy` — deploy `database.rules.json` to Firebase
 
 ## Setup
@@ -26,7 +27,14 @@ The Firebase web config is committed in `lib/firebase/client.ts` (it's public by
 design); `.env.example` lists optional overrides. Deploy Realtime Database rules
 with `npm run rules:deploy` after changing `database.rules.json`.
 
-Room data lives at `rooms/<CODE>/{meta,settings,members}`; see `lib/room.ts`.
+Room data lives at `rooms/<CODE>/{meta,settings,members,nominations,queue,play,votes}`;
+see `lib/room.ts`. Status flow: lobby → nominating → playing → finished. The TV is
+authoritative: it builds the queue, drives `play` (index + playing/reveal) and
+ends clips; phones only write their own nominations and votes.
+
+Song search needs `NEXT_PUBLIC_YOUTUBE_API_KEY` (YouTube Data API v3). Without it
+phones can still paste YouTube links. Videos whose uploader blocks embedding are
+rejected at nomination (oEmbed 401) and skipped on the TV (player errors 101/150).
 Codes are 4 letters without I, L or O.
 
 Rooms are addressed by query string (`/play?code=ABCD`), never a dynamic route
