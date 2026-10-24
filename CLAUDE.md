@@ -13,6 +13,7 @@ set number of rounds, the song with the most votes wins.
 - `npm run build:native` — static export into `out/` for Capacitor
 - `npm run ios` / `npm run android` — native build, sync, open in Xcode / Android Studio
 - `npm run lint`
+- `npm run rules:deploy` — deploy `database.rules.json` to Firebase
 
 ## Setup
 
@@ -21,7 +22,12 @@ targets from one codebase, see `next.config.ts`). Multiplayer follows irummy:
 anonymous Firebase auth plus Realtime Database rooms (`database.rules.json`),
 not Firestore, because live voting needs low latency and `onDisconnect` presence.
 
-Copy `.env.example` to `.env.local` and fill in the Firebase web config.
+The Firebase web config is committed in `lib/firebase/client.ts` (it's public by
+design); `.env.example` lists optional overrides. Deploy Realtime Database rules
+with `npm run rules:deploy` after changing `database.rules.json`.
+
+Room data lives at `rooms/<CODE>/{meta,settings,members}`; see `lib/room.ts`.
+Codes are 4 letters without I, L or O.
 
 Rooms are addressed by query string (`/play?code=ABCD`), never a dynamic route
 segment, so the static native export keeps working.

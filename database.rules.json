@@ -2,14 +2,25 @@
   "rules": {
     "rooms": {
       "$code": {
+        ".validate": "$code.matches(/^[A-Z]{4}$/)",
         "meta": {
           ".read": "auth != null",
-          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid)"
+          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid || data.child('createdAt').val() < now - 43200000)",
+          ".validate": "newData.child('hostUid').val() === auth.uid && newData.child('status').val().matches(/^(lobby|nominating|playing|finished)$/)"
+        },
+        "settings": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid",
+          "rounds": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+          "theme": { ".validate": "newData.isString() && newData.val().length <= 60" }
         },
         "members": {
           ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid",
           "$uid": {
-            ".write": "auth != null && ($uid === auth.uid || root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid)"
+            ".write": "auth != null && $uid === auth.uid",
+            "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 20" },
+            "online": { ".validate": "newData.isBoolean()" }
           }
         }
       }

@@ -8,17 +8,20 @@ import {
 } from "firebase/auth";
 import { getDatabase, type Database } from "firebase/database";
 
-// Firebase web config (public; access is governed by database.rules.json). When
-// the env isn't set yet, `app` is null and the UI shows a setup notice instead of
-// crashing.
+// Firebase web config for the musical-genius project. It is public by design
+// (it ships in every client bundle); access is governed by database.rules.json.
+// Committed so web, iOS and Android builds work without per-machine env setup;
+// NEXT_PUBLIC_FIREBASE_* env vars still override it (e.g. a staging project).
+const env = process.env;
 const config = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyAqX3_rdDdMO-6ApM2awTOTGm0cFNbt7F8",
+  authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "musical-genius.firebaseapp.com",
+  databaseURL:
+    env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || "https://musical-genius-default-rtdb.firebaseio.com",
+  projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "musical-genius",
+  storageBucket: env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "musical-genius.firebasestorage.app",
+  messagingSenderId: env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "1059959884070",
+  appId: env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:1059959884070:web:3fa6c28f3b4362d4e2d9e7",
 };
 
 export const firebaseConfigured = Boolean(config.apiKey && config.databaseURL);
