@@ -38,6 +38,7 @@ describe("fromItunes", () => {
 describe("shelvesFor", () => {
   it("opens on the room's theme, then the chart", () => {
     expect(shelvesFor("90s").slice(0, 2)).toEqual(["90s", TOP_SHELF]);
+    expect(shelvesFor("EDM").slice(0, 2)).toEqual(["EDM", TOP_SHELF]);
     expect(shelvesFor("").slice(0, 2)).toEqual(["Party starters", TOP_SHELF]);
     expect(new Set(shelvesFor("Rock")).size).toBe(Object.keys(SHELVES).length + 1);
   });

@@ -24,7 +24,7 @@ import { load, save } from "@/lib/storage";
 import { enterFullscreen } from "@/lib/fullscreen";
 import { HostGame } from "./HostGame";
 
-const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "Bollywood"];
+const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "EDM", "Bollywood"];
 const CLIPS = [
   { seconds: 0, label: "Whole song" },
   { seconds: 30, label: "30s" },
