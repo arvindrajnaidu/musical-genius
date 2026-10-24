@@ -13,7 +13,8 @@
     "ios": "npm run build:native && cap sync ios && cap open ios",
     "android": "npm run build:native && cap sync android && cap open android",
     "rules:deploy": "npx -y firebase-tools deploy --only database",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rules:check": "node scripts/rules-check.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
