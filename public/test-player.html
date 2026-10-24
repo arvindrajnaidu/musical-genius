@@ -42,6 +42,10 @@
     <button>Play</button>
   </form>
 
+  <h2>Like the TV: tap once, then each song starts on its own</h2>
+  <p class="note">Plays every list song below in a row, 8 seconds each, with no more taps, the way the TV moves to the next song.</p>
+  <button id="run">Play the list in a row</button>
+
   <h2>Songs from the app's lists (looked up like a tap in the app)</h2>
   <ul id="songs"></ul>
 
@@ -81,7 +85,7 @@ const $ = (id) => document.getElementById(id);
 const log = (m) => { const l = $("log"); l.textContent = `${new Date().toLocaleTimeString()}  ${m}\n` + l.textContent; };
 const status = (m) => { $("status").textContent = m; };
 
-let player = null, ready = null, current = null, stuckTimer = null;
+let player = null, ready = null, current = null, stuckTimer = null, onDone = null;
 
 function loadApi() {
   return new Promise((resolve) => {
@@ -105,6 +109,7 @@ function finish(cls, text) {
   status(`${current.label}: ${text}`);
   log(`${current.videoId} → ${text}`);
   if (cls !== "ok") current = null;
+  if (onDone) onDone(cls);
 }
 
 async function play(videoId, row, label) {
@@ -151,8 +156,10 @@ function addRow(list, title, sub) {
   return li;
 }
 
+const rows = [];
 for (const [artist, title] of SONGS) {
   const row = addRow($("songs"), title, artist);
+  rows.push(row);
   row.querySelector("button").onclick = async () => {
     setTag(row, "warn", "looking up…");
     try {
@@ -168,12 +175,28 @@ for (const [artist, title] of SONGS) {
       row.querySelector(".meta").textContent = `${artist} → ${j.videoId} · “${j.title}” · ${j.channel}`;
       log(`lookup ${artist} – ${title} → ${j.videoId} (${j.channel})`);
       play(j.videoId, row, title);
+      return true;
     } catch (e) {
       setTag(row, "bad", "lookup failed: network");
       log(`lookup ${artist} – ${title} → ${e}`);
     }
   };
 }
+
+// Only the first song gets the tap; later ones start from timers, like the TV.
+$("run").onclick = () => {
+  let i = 0;
+  log("--- in a row: start ---");
+  const next = async () => {
+    onDone = null;
+    if (i >= rows.length) { log("--- in a row: done ---"); return status("In a row: done. Check each row's result."); }
+    const row = rows[i++];
+    onDone = (cls) => { onDone = null; setTimeout(next, cls === "ok" ? 8000 : 1500); };
+    const ok = await row.querySelector("button").onclick();
+    if (!ok && onDone) { onDone = null; setTimeout(next, 1500); }
+  };
+  next();
+};
 
 // Same parsing as lib/youtube.ts parseVideoId.
 function parseVideoId(input) {
