@@ -12,6 +12,9 @@ set number of rounds, the song with the most votes wins.
 - `npm run build` — web build (deployed to Vercel)
 - `npm run build:native` — static export into `out/` for Capacitor
 - `npm run ios` / `npm run android` — native build, sync, open in Xcode / Android Studio
+- `npm run ios:testflight` — native build, sync, archive, upload to TestFlight (macOS only;
+  uses the App Store Connect API key in `~/.appstoreconnect/private_keys/`, same as Birthday Scroll)
+- `npm run cap:assets` — regenerate app icons/splashes from `assets/`
 - `npm run lint`
 - `npm test` — Vitest for the pure rules in `lib/game.ts` and link parsing in `lib/youtube.ts`
 - `npm run rules:deploy` — deploy `database.rules.json` to Firebase
