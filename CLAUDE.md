@@ -15,6 +15,11 @@ set number of rounds, the song with the most votes wins.
 - `npm run lint`
 - `npm test` — Vitest for the pure rules in `lib/game.ts` and link parsing in `lib/youtube.ts`
 - `npm run rules:deploy` — deploy `database.rules.json` to Firebase
+- `npm run rules:check` — run the app's reads/writes against the rules on a local
+  Realtime Database emulator (start one on :9000 and PUT the rules to
+  `/.settings/rules.json?ns=musical-genius-default-rtdb` first). Run it after any rules
+  change: RTDB rules have no `numChildren()` and similar, and a rule that doesn't
+  compile makes the whole deploy fail.
 
 ## Setup
 
