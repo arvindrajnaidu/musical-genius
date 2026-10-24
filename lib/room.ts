@@ -94,12 +94,29 @@ export async function joinRoom(code: string, uid: string, name: string): Promise
     online: true,
     joinedAt: members[uid]?.joinedAt ?? serverTimestamp(),
   });
+}
+
+// Keep `online` true whenever this phone is connected. An onDisconnect handler
+// fires once and is not re-armed, so a phone that locked its screen (dropping
+// the socket) would otherwise stay "offline" after it reconnects. Re-arm and
+// re-mark on every (re)connect instead. Returns an unsubscribe.
+export function trackPresence(code: string, uid: string): () => void {
+  const d = database();
   const onlineRef = ref(d, `${base(code)}/members/${uid}/online`);
-  onDisconnect(onlineRef).set(false);
+  return onValue(ref(d, ".info/connected"), async (snap) => {
+    if (snap.val() !== true) return;
+    await onDisconnect(onlineRef).set(false);
+    // Only re-mark if we're still a member (not removed via Leave).
+    const name = (await get(ref(d, `${base(code)}/members/${uid}/name`))).val();
+    if (name) await set(onlineRef, true);
+  });
 }
 
 export async function leaveRoom(code: string, uid: string): Promise<void> {
-  await set(ref(database(), `${base(code)}/members/${uid}`), null);
+  const d = database();
+  // Cancel the armed presence write, or it would recreate a nameless entry.
+  await onDisconnect(ref(d, `${base(code)}/members/${uid}/online`)).cancel();
+  await set(ref(d, `${base(code)}/members/${uid}`), null);
 }
 
 export async function updateSettings(code: string, settings: Partial<RoomSettings>): Promise<void> {

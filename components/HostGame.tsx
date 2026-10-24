@@ -70,11 +70,13 @@ function Nominating({
   nominations: Record<string, Record<string, Nomination>>;
 }) {
   const [starting, setStarting] = useState(false);
-  const players = Object.entries(members).filter(([uid, m]) => m.online || nominations[uid]);
+  // Offline usually means a locked phone, not a player who left, so everyone
+  // who joined is listed and counted.
+  const players = Object.entries(members);
   const count = (uid: string) => Object.keys(nominations[uid] || {}).length;
   const pickers = players.filter(([uid]) => count(uid) > 0).length;
   const total = players.reduce((n, [uid]) => n + count(uid), 0);
-  const allDone = players.length > 0 && players.every(([uid, m]) => !m.online || count(uid) >= settings.rounds);
+  const allDone = players.length > 0 && players.every(([uid]) => count(uid) >= settings.rounds);
 
   async function start() {
     setStarting(true);
@@ -144,7 +146,7 @@ function Playing({
   const songVotes = Object.entries(votes[String(index)] || {}).filter(([uid]) => uid !== song.by);
   const likes = songVotes.filter(([, v]) => v === 1).length;
   const dislikes = songVotes.filter(([, v]) => v === -1).length;
-  const voters = Object.entries(members).filter(([uid, m]) => m.online && uid !== song.by).length;
+  const voters = Object.keys(members).filter((uid) => uid !== song.by).length;
   const last = index + 1 >= queue.length;
 
   const next = useMemo(

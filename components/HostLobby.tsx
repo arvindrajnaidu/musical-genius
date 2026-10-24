@@ -105,7 +105,9 @@ export function HostLobby() {
   if (!code) return <p className="text-3xl text-white/70">Creating a room…</p>;
 
   const players = Object.entries(members).sort(([, a], [, b]) => (a.joinedAt || 0) - (b.joinedAt || 0));
-  const online = players.filter(([, m]) => m.online).length;
+  // Everyone who joined counts toward starting: a dimmed (offline) player has
+  // usually just locked their phone and will be back when it wakes.
+  const joinedCount = players.length;
   const url = joinUrl(code);
   const theme = settings.theme || THEMES[0];
   const clip = settings.clipSeconds ?? DEFAULT_SETTINGS.clipSeconds;
@@ -128,7 +130,7 @@ export function HostLobby() {
       <section className="flex flex-col gap-8">
         <div>
           <h2 className="mb-4 text-3xl font-semibold">
-            Players <span className="text-white/50">({online})</span>
+            Players <span className="text-white/50">({joinedCount})</span>
           </h2>
           {players.length === 0 ? (
             <p className="text-2xl text-white/50">Waiting for people to join…</p>
@@ -195,13 +197,13 @@ export function HostLobby() {
 
         <div className="flex items-center gap-6">
           <button
-            disabled={online < MIN_PLAYERS}
+            disabled={joinedCount < MIN_PLAYERS}
             onClick={() => setStatus(code, "nominating")}
             className="rounded-2xl bg-like px-10 py-5 text-3xl font-bold text-stage disabled:opacity-40"
           >
             Start game
           </button>
-          {online < MIN_PLAYERS && <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>}
+          {joinedCount < MIN_PLAYERS && <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>}
           <button onClick={newRoom} className="ml-auto text-xl text-white/50 underline">
             New room
           </button>

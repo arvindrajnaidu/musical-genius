@@ -6,6 +6,7 @@ import { ensureSignedIn } from "@/lib/firebase/auth";
 import {
   joinRoom,
   leaveRoom,
+  trackPresence,
   normalizeCode,
   watchMeta,
   watchSettings,
@@ -44,7 +45,11 @@ export function JoinGame() {
 
   useEffect(() => {
     if (!joined) return;
-    const offs = [watchMeta(joined.code, setMeta), watchSettings(joined.code, setSettings)];
+    const offs = [
+      watchMeta(joined.code, setMeta),
+      watchSettings(joined.code, setSettings),
+      trackPresence(joined.code, joined.uid),
+    ];
     return () => offs.forEach((off) => off());
   }, [joined]);
 
@@ -69,8 +74,9 @@ export function JoinGame() {
   }
 
   async function leave() {
-    if (joined) await leaveRoom(joined.code, joined.uid).catch(() => {});
-    setJoined(null);
+    const was = joined;
+    setJoined(null); // stops presence tracking before the entry is removed
+    if (was) await leaveRoom(was.code, was.uid).catch(() => {});
     setMeta(undefined);
   }
 

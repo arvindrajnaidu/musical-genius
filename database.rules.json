@@ -20,6 +20,7 @@
           ".write": "auth != null && root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid",
           "$uid": {
             ".write": "auth != null && $uid === auth.uid",
+            ".validate": "newData.hasChild('name')",
             "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 20" },
             "online": { ".validate": "newData.isBoolean()" }
           }
