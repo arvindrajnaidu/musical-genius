@@ -9,6 +9,7 @@
 //   rooms/<CODE>/queue                   QueueItem[] (host writes when the music starts)
 //   rooms/<CODE>/play                    { index, phase, startedAt } (host drives playback)
 //   rooms/<CODE>/votes/<index>/<uid>     1 | -1 (player writes own, only while that song plays)
+import { siteOrigin } from "./site";
 import {
   ref,
   push,
@@ -186,11 +187,5 @@ export async function vote(code: string, index: number, uid: string, v: Vote): P
   await set(ref(database(), `${base(code)}/votes/${index}/${uid}`), v);
 }
 
-// The link phones open (and the QR code on the TV encodes). Native webviews run
-// at capacitor://localhost, which isn't shareable, so fall back to the site URL.
-export const SITE_URL = "https://musical-genius.vercel.app";
-export function joinUrl(code: string): string {
-  const origin =
-    typeof location !== "undefined" && location.protocol.startsWith("http") ? location.origin : SITE_URL;
-  return `${origin}/play?code=${code}`;
-}
+// The link phones open (and the QR code on the TV encodes).
+export const joinUrl = (code: string) => `${siteOrigin()}/play?code=${code}`;
