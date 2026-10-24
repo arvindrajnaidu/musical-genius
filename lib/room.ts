@@ -33,7 +33,7 @@ export type RoomSettings = { rounds: number; theme: string; clipSeconds: number 
 export type Play = { index: number; phase: "playing" | "reveal"; startedAt: number };
 export type Member = { name: string; online: boolean; joinedAt: number };
 
-export const DEFAULT_SETTINGS: RoomSettings = { rounds: 3, theme: "", clipSeconds: 60 };
+export const DEFAULT_SETTINGS: RoomSettings = { rounds: 3, theme: "", clipSeconds: 0 };
 export const MAX_PLAYERS = 20;
 
 // Room codes are typed on phones across a loud room, so: 4 letters, no digits,
