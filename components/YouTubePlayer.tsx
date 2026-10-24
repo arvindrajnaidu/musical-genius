@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Minimal typing for the parts of the IFrame Player API we use.
 type YTPlayer = {
@@ -49,6 +49,10 @@ function loadApi(): Promise<YTNamespace> {
 
 const PLAYING = 1;
 const ENDED = 0;
+// iPad browsers only start a video with sound from a tap. The host's tap on
+// "start" is spent before the player exists, so a song that hasn't started by
+// now gets a big play button; one tap unlocks autoplay for the rest of the game.
+const TAP_AFTER_MS = 4000;
 
 // The TV's player. One iframe for the whole game; changing `videoId` loads the
 // next song in place (so the browser's autoplay permission from the host's first
@@ -74,10 +78,21 @@ export function YouTubePlayer({
   const loaded = useRef<string | null>(null);
   const handlers = useRef({ onStarted, onEnded, onError });
   const startedFor = useRef<string | null>(null);
+  const erroredFor = useRef<string | null>(null);
+  const pausedRef = useRef(paused);
+  const [stuckFor, setStuckFor] = useState<string | null>(null);
 
   useEffect(() => {
     handlers.current = { onStarted, onEnded, onError };
+    pausedRef.current = paused;
   });
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (startedFor.current !== videoId && erroredFor.current !== videoId && !pausedRef.current) setStuckFor(videoId);
+    }, TAP_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [videoId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,13 +112,18 @@ export function YouTubePlayer({
         events: {
           onReady: () => player.current?.playVideo(),
           onStateChange: (e) => {
+            if (e.data === PLAYING) setStuckFor(null);
             if (e.data === PLAYING && startedFor.current !== loaded.current) {
               startedFor.current = loaded.current;
               handlers.current.onStarted?.();
             }
             if (e.data === ENDED) handlers.current.onEnded?.();
           },
-          onError: (e) => handlers.current.onError?.(e.data),
+          onError: (e) => {
+            erroredFor.current = loaded.current;
+            setStuckFor(null);
+            handlers.current.onError?.(e.data);
+          },
         },
       });
     });
@@ -129,7 +149,21 @@ export function YouTubePlayer({
   return (
     // The API swaps the inner div for a fixed-size iframe; stretch it to fill.
     <div className={`overflow-hidden bg-black [&_iframe]:h-full [&_iframe]:w-full ${className}`}>
-      <div ref={el} />
+      <div className="relative h-full w-full">
+        <div ref={el} />
+        {stuckFor === videoId && (
+          // Above the host screen's click shield, below its top bar.
+          <button
+            onClick={() => {
+              player.current?.playVideo();
+              setStuckFor(null);
+            }}
+            className="absolute inset-0 z-10 flex cursor-pointer items-center justify-center bg-black/60"
+          >
+            <span className="rounded-full bg-white px-10 py-6 text-4xl font-bold text-stage shadow-2xl">▶ Tap to play</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
