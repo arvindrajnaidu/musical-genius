@@ -24,7 +24,8 @@ async function expectDenied(label, p) {
 }
 
 await expectOk("host claims code", runTransaction(ref(host, `${b}/meta`), (cur) => cur ? undefined : { hostUid: "host1", status: "lobby", createdAt: Date.now() }));
-await expectOk("host writes settings", update(ref(host), { [`${b}/settings`]: { rounds: 2, theme: "", clipSeconds: 60 }, [`${b}/members`]: null }));
+await expectOk("host writes settings", update(ref(host), { [`${b}/settings`]: { genres: [], rounds: 1, theme: "", clipSeconds: 60 }, [`${b}/members`]: null }));
+await expectOk("host picks genres", update(ref(host, `${b}/settings`), { genres: ["80s", "90s"], rounds: 2 }));
 await expectDenied("other TV can't take the room", runTransaction(ref(eve, `${b}/meta`), () => ({ hostUid: "eve1", status: "lobby", createdAt: Date.now() })));
 for (const [db, uid, name] of [[ann, "ann1", "Ann"], [bob, "bob1", "Bob"]]) {
   await expectOk(`${name} reads meta`, get(ref(db, `${b}/meta`)));
@@ -34,7 +35,7 @@ for (const [db, uid, name] of [[ann, "ann1", "Ann"], [bob, "bob1", "Bob"]]) {
   await expectOk(`${name} re-marks online`, set(ref(db, `${b}/members/${uid}/online`), true));
 }
 await expectDenied("Ann can't rename Bob", set(ref(ann, `${b}/members/bob1/name`), "Bobo"));
-const song = (id) => ({ videoId: id, title: "Song " + id, channel: "Ch", at: serverTimestamp() });
+const song = (id, genre = "80s") => ({ videoId: id, title: "Song " + id, channel: "Ch", genre, at: serverTimestamp() });
 await expectOk("Ann picks in lobby", push(ref(ann, `${b}/nominations/ann1`), song("dQw4w9WgXcQ")));
 await expectOk("Ann reads own picks", get(ref(ann, `${b}/nominations/ann1`)));
 await expectDenied("Bob can't read Ann's picks", get(ref(bob, `${b}/nominations/ann1`)));
@@ -46,10 +47,14 @@ await expectOk("Bob picks while nominating", push(ref(bob, `${b}/nominations/bob
 const removable = push(ref(bob, `${b}/nominations/bob1`), song("kJQP7kiw5Fk"));
 await expectOk("Bob picks again", removable);
 await expectOk("Bob removes a pick", set(ref(bob, `${b}/nominations/bob1/${removable.key}`), null));
+const swapped = push(ref(bob, `${b}/nominations/bob1`)).key;
+await expectOk("Bob swaps his 80s pick in one update", update(ref(bob), {
+  [`${b}/nominations/bob1/${removable.key}`]: null, [`${b}/nominations/bob1/${swapped}`]: song("kJQP7kiw5Fk", "90s"),
+}));
 await expectOk("host reads all picks", get(ref(host, `${b}/nominations`)));
 const queue = [
-  { videoId: "dQw4w9WgXcQ", title: "A", channel: "", by: "ann1", byName: "Ann" },
-  { videoId: "9bZkp7q19f0", title: "B", channel: "", by: "bob1", byName: "Bob" },
+  { videoId: "dQw4w9WgXcQ", title: "A", channel: "", by: "ann1", byName: "Ann", genre: "80s", round: 0 },
+  { videoId: "9bZkp7q19f0", title: "B", channel: "", by: "bob1", byName: "Bob", genre: "80s", round: 0 },
 ];
 await expectOk("host starts music", update(ref(host), {
   [`${b}/queue`]: queue, [`${b}/votes`]: null,

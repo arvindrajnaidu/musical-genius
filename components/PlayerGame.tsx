@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { tally, type Nomination, type QueueItem, type Vote, type Votes } from "@/lib/game";
+import { roundSongs, roundVote, tally, type Nomination, type QueueItem, type Votes } from "@/lib/game";
 import {
-  nominate,
-  removeNomination,
+  genresOf,
+  nominateForGenre,
   vote,
   watchMyNominations,
   watchPlay,
@@ -39,16 +39,28 @@ export function PlayerGame({ code, uid, meta, settings }: Props) {
 }
 
 function Nominate({ code, uid, settings }: { code: string; uid: string; settings: RoomSettings }) {
+  const genres = genresOf(settings);
   const [mine, setMine] = useState<Record<string, Nomination>>({});
+  // undefined: follow the first genre still missing a pick; null: done picking.
+  const [chosen, setChosen] = useState<string | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[] | null>(null);
-  const shelves = shelvesFor(settings.theme);
-  const [shelf, setShelf] = useState(shelves[0]);
+  const [shelfChoice, setShelfChoice] = useState<string | null>(null);
   const [top, setTop] = useState<Track[] | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => watchMyNominations(code, uid, setMine), [code, uid]);
+
+  // Each genre's pick (the earliest, if an old build left more than one).
+  const all = Object.entries(mine).sort(([, a], [, b]) => (a.at || 0) - (b.at || 0));
+  const pickFor = (g: string) => all.find(([, n]) => n.genre === g);
+  const missing = genres.filter((g) => !pickFor(g));
+  const active =
+    chosen === undefined || (chosen !== null && !genres.includes(chosen)) ? (missing[0] ?? null) : chosen;
+
+  const shelves = active ? shelvesFor(active) : [];
+  const shelf = shelfChoice && shelves.includes(shelfChoice) ? shelfChoice : shelves[0];
 
   // Typeahead: search the catalog a moment after typing stops.
   const term = query.trim();
@@ -74,9 +86,13 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
       .catch(() => setTop([]));
   }, [shelf, top]);
 
-  const picks = Object.entries(mine).sort(([, a], [, b]) => (a.at || 0) - (b.at || 0));
-  const full = picks.length >= settings.rounds;
-  const over = picks.length - settings.rounds;
+  function open(g: string | null) {
+    setChosen(g);
+    setShelfChoice(null);
+    setQuery("");
+    setResults(null);
+    setError(null);
+  }
 
   function fail(err: unknown) {
     console.error(err);
@@ -97,11 +113,15 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
   }
 
   async function add(song: Song) {
-    if (full || picks.some(([, p]) => p.videoId === song.videoId)) return;
-    await nominate(code, uid, song);
-    setQuery("");
-    setResults(null);
+    if (!active) return;
+    const other = all.find(([, n]) => n.videoId === song.videoId && n.genre !== active);
+    if (other) return setError(`You already picked that for ${other[1].genre}. Choose another song.`);
+    const replace = all.filter(([, n]) => n.genre === active).map(([id]) => id);
+    await nominateForGenre(code, uid, song, active, replace);
     buzz();
+    // On to the next genre still missing a pick, or done.
+    const rest = missing.filter((g) => g !== active);
+    open(rest.find((g) => genres.indexOf(g) > genres.indexOf(active)) ?? rest[0] ?? null);
   }
 
   async function pick(t: Track) {
@@ -133,44 +153,64 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
     }
   }
 
-  const picked = new Set(picks.map(([, p]) => `${p.channel}|${p.title}`.toLowerCase()));
+  const current = active ? pickFor(active)?.[1] : undefined;
+  const isCurrent = (t: Track) =>
+    Boolean(current && `${current.channel}|${current.title}`.toLowerCase() === `${t.artist}|${t.title}`.toLowerCase());
   const list = term.length >= 2 && !isLink ? results : shelf === TOP_SHELF ? top : SHELVES[shelf];
+
+  if (genres.length === 0) {
+    return (
+      <div className="flex w-full max-w-md flex-col gap-3 text-center">
+        <h1 className="font-display text-3xl font-bold">You&apos;re in!</h1>
+        <p className="text-white/70">Waiting for the host to choose the genres…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex w-full max-w-md flex-col gap-5">
       <div className="text-center">
         <h1 className="font-display text-3xl font-bold">Pick your songs</h1>
         <p className="text-white/70">
-          {settings.theme || "Anything goes"} · {Math.min(picks.length, settings.rounds)}/{settings.rounds} picked
+          One song for each genre · {genres.length - missing.length}/{genres.length} picked
         </p>
-        {over > 0 && (
-          <p className="mt-1 text-sm text-amber-200">
-            The host lowered the song count. Remove {over} so your favourites play.
-          </p>
-        )}
       </div>
 
       <ul className="flex flex-col gap-2">
-        {picks.map(([id, p]) => (
-          <li key={id} className="flex items-center gap-3 rounded-2xl bg-white/10 p-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- remote YouTube thumbnail, static export */}
-            <img src={thumbUrl(p.videoId)} alt="" className="h-12 w-20 rounded-lg object-cover" />
-            <span className="flex-1 text-left text-sm leading-tight">
-              {p.title}
-              {p.channel && <span className="block text-white/50">{p.channel}</span>}
-            </span>
-            <button
-              aria-label={`Remove ${p.title}`}
-              onClick={() => removeNomination(code, uid, id)}
-              className="px-2 text-xl text-white/50"
-            >
-              ✕
-            </button>
-          </li>
-        ))}
+        {genres.map((g, i) => {
+          const p = pickFor(g)?.[1];
+          const on = g === active;
+          return (
+            <li key={g}>
+              <button
+                onClick={() => open(on ? null : g)}
+                aria-expanded={on}
+                className={`flex w-full items-center gap-3 rounded-2xl p-2 text-left ${on ? "bg-white text-stage" : "bg-white/10"}`}
+              >
+                {p ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- remote YouTube thumbnail, static export
+                  <img src={thumbUrl(p.videoId)} alt="" className="h-12 w-20 rounded-lg object-cover" />
+                ) : (
+                  <span className={`flex h-12 w-20 items-center justify-center rounded-lg text-xl ${on ? "bg-stage/10" : "bg-white/10"}`}>
+                    🎵
+                  </span>
+                )}
+                <span className="flex-1 text-sm leading-tight">
+                  <span className="block font-semibold">
+                    Round {i + 1} · {g} {p ? "✓" : ""}
+                  </span>
+                  <span className={on ? "text-stage/60" : "text-white/60"}>
+                    {p ? p.title : on ? "Choose a song below" : "Tap to pick"}
+                  </span>
+                </span>
+                {p && <span className={`px-2 text-sm ${on ? "text-stage/60" : "text-white/50"}`}>{on ? "Close" : "Change"}</span>}
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
-      {full ? (
+      {!active ? (
         <p className="rounded-2xl bg-like/20 p-4 text-center text-lg">
           You&apos;re all set! Keep your picks secret 🤫 and watch the TV.
         </p>
@@ -184,7 +224,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
                 setError(null);
                 if (e.target.value.trim().length < 2) setResults(null);
               }}
-              placeholder="Search a song or artist, or paste a YouTube link"
+              placeholder={`Search a ${active} song, or paste a YouTube link`}
               autoComplete="off"
               enterKeyHint={isLink ? "done" : "search"}
               className="rounded-2xl bg-white px-4 py-4 text-lg text-stage placeholder:text-stage/40"
@@ -195,7 +235,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
                 disabled={Boolean(pending)}
                 className="rounded-2xl bg-like px-6 py-3 text-lg font-bold text-stage disabled:opacity-40"
               >
-                {pending ? "…" : "Add song"}
+                {pending ? "…" : `Pick for ${active}`}
               </button>
             )}
             {error && <p className="text-center text-nope">{error}</p>}
@@ -206,7 +246,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
               {shelves.map((s) => (
                 <button
                   key={s}
-                  onClick={() => setShelf(s)}
+                  onClick={() => setShelfChoice(s)}
                   className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${
                     s === shelf ? "bg-white text-stage" : "border-2 border-white/30"
                   }`}
@@ -228,7 +268,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
               ) : (
                 list.map((t) => {
                   const key = trackKey(t);
-                  const done = picked.has(`${t.artist}|${t.title}`.toLowerCase());
+                  const done = isCurrent(t);
                   return (
                     <li key={key}>
                       <button
@@ -285,7 +325,7 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
         <h1 className="font-display text-4xl font-bold">🏆 {players[0]?.name}</h1>
         {me && (
           <p className="rounded-2xl bg-white/10 px-5 py-4 text-lg">
-            {rank === 0 ? "That's you! Musical genius." : `You came #${rank + 1}`} · {me.score > 0 ? `+${me.score}` : me.score}
+            {rank === 0 ? "That's you! Musical genius." : `You came #${rank + 1}`} · ❤️ {me.score} {me.score === 1 ? "vote" : "votes"}
           </p>
         )}
         <p className="text-white/50">Watch the TV for the full results.</p>
@@ -296,17 +336,22 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
   const song = play ? queue[play.index] : undefined;
   if (!play || !song) return <p className="text-white/70">Get ready…</p>;
 
+  const round = song.round ?? 0;
+  const inRound = roundSongs(queue, round);
+  const rounds = new Set(queue.map((q) => q.round ?? 0)).size;
   const mine = song.by === uid;
-  const my = votes[String(play.index)]?.[uid] as Vote | undefined;
-  const cast = (v: Vote) => {
-    vote(code, play.index, uid, v);
+  const at = roundVote(queue, votes, round, uid);
+  const here = at === play.index;
+  const cast = () => {
+    vote(code, play.index, uid);
     buzz();
   };
 
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
       <p className="text-sm uppercase tracking-widest text-white/60">
-        Song {play.index + 1} of {queue.length}
+        {song.genre ? `${song.genre} · ` : ""}Round {round + 1} of {rounds} · Song {inRound.indexOf(play.index) + 1} of{" "}
+        {inRound.length}
       </p>
       <h1 className="font-display text-2xl font-bold leading-tight">{song.title}</h1>
 
@@ -320,25 +365,26 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
           <span className="block text-base text-white/60">Keep a straight face.</span>
         </p>
       ) : (
-        <div className="grid w-full grid-cols-2 gap-4">
-          <button
-            onClick={() => cast(-1)}
-            aria-pressed={my === -1}
-            className={`rounded-3xl py-12 text-6xl transition ${my === -1 ? "scale-105 bg-nope" : "bg-white/10"}`}
-          >
-            👎
-          </button>
-          <button
-            onClick={() => cast(1)}
-            aria-pressed={my === 1}
-            className={`rounded-3xl py-12 text-6xl transition ${my === 1 ? "scale-105 bg-like" : "bg-white/10"}`}
-          >
-            👍
-          </button>
-        </div>
+        <button
+          onClick={cast}
+          disabled={here}
+          aria-pressed={here}
+          className={`w-full rounded-3xl px-6 py-10 text-3xl font-bold transition ${here ? "scale-105 bg-like text-stage" : "bg-white/10"}`}
+        >
+          ❤️ {here ? "Your vote is here" : at !== undefined ? "Move my vote here" : "Vote for this song"}
+        </button>
       )}
       {play.phase === "playing" && !mine && (
-        <p className="text-white/50">{my ? "You can change your vote until the reveal." : "Do you like it?"}</p>
+        <p className="text-white/60">
+          {here
+            ? "A later song in this round can still take it."
+            : at !== undefined
+              ? `Your vote is on “${queue[at].title}”. Tap to move it here.`
+              : `One vote per round. Your last vote in ${song.genre || "this round"} counts.`}
+        </p>
+      )}
+      {play.phase === "playing" && mine && at !== undefined && (
+        <p className="text-white/60">Your vote this round is on “{queue[at].title}”.</p>
       )}
     </div>
   );

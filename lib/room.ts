@@ -3,12 +3,13 @@
 // adapted for one TV host plus many phone players:
 //
 //   rooms/<CODE>/meta                    { hostUid, status, createdAt }
-//   rooms/<CODE>/settings                { rounds, theme, clipSeconds } (host writes)
+//   rooms/<CODE>/settings                { genres, rounds, theme, clipSeconds } (host writes)
 //   rooms/<CODE>/members/<uid>           { name, online, joinedAt } (each player writes their own)
 //   rooms/<CODE>/nominations/<uid>/<id>  Nomination (player writes own; only they and the host read)
 //   rooms/<CODE>/queue                   QueueItem[] (host writes when the music starts)
 //   rooms/<CODE>/play                    { index, phase, startedAt } (host drives playback)
-//   rooms/<CODE>/votes/<index>/<uid>     1 | -1 (player writes own, only while that song plays)
+//   rooms/<CODE>/votes/<index>/<uid>     1 (player writes own, only while that song plays;
+//                                        see lib/game.ts for how that becomes one vote per round)
 import { siteOrigin } from "./site";
 import {
   ref,
@@ -27,14 +28,21 @@ import type { Nomination, QueueItem, Vote, Votes } from "./game";
 export type RoomStatus = "lobby" | "nominating" | "playing" | "finished";
 
 export type RoomMeta = { hostUid: string; status: RoomStatus; createdAt: number };
+// genres: the rounds, in play order; each player picks one song per genre.
+// rounds mirrors genres.length (at least 1, as the rules require) and theme is
+// unused; both stay for rooms and builds from before genres.
 // clipSeconds: how much of each song plays before the reveal (0 = whole song).
-export type RoomSettings = { rounds: number; theme: string; clipSeconds: number };
+export type RoomSettings = { genres?: string[]; rounds: number; theme: string; clipSeconds: number };
 // "playing" while the song is on and votes are open; "reveal" shows who picked it
 // and the tally before the next song.
 export type Play = { index: number; phase: "playing" | "reveal"; startedAt: number };
 export type Member = { name: string; online: boolean; joinedAt: number };
 
-export const DEFAULT_SETTINGS: RoomSettings = { rounds: 3, theme: "", clipSeconds: 0 };
+export const DEFAULT_SETTINGS: RoomSettings = { genres: [], rounds: 1, theme: "", clipSeconds: 0 };
+export const MAX_GENRES = 10;
+
+// The Realtime Database drops empty arrays, so a room with no genres yet reads back without the key.
+export const genresOf = (s: RoomSettings) => (s.genres || []).filter(Boolean);
 export const MAX_PLAYERS = 20;
 
 // Room codes are typed on phones across a loud room, so: 4 letters, no digits,
@@ -124,6 +132,10 @@ export async function updateSettings(code: string, settings: Partial<RoomSetting
   await update(ref(database(), `${base(code)}/settings`), settings);
 }
 
+export async function setGenres(code: string, genres: string[]): Promise<void> {
+  await updateSettings(code, { genres, rounds: Math.max(1, genres.length) });
+}
+
 export async function setStatus(code: string, status: RoomStatus): Promise<void> {
   await update(ref(database(), `${base(code)}/meta`), { status });
 }
@@ -139,11 +151,21 @@ export const watchMembers = (code: string, cb: (m: Record<string, Member>) => vo
   watch<Record<string, Member>>(`${base(code)}/members`, (v) => cb(v || {}));
 
 // ---- nominations (phones) ----
-export async function nominate(code: string, uid: string, song: Omit<Nomination, "at">): Promise<void> {
-  await push(ref(database(), `${base(code)}/nominations/${uid}`), { ...song, at: serverTimestamp() });
-}
-export async function removeNomination(code: string, uid: string, id: string): Promise<void> {
-  await set(ref(database(), `${base(code)}/nominations/${uid}/${id}`), null);
+// One pick per genre: a new pick for a genre replaces the old one.
+export async function nominateForGenre(
+  code: string,
+  uid: string,
+  song: Omit<Nomination, "at" | "genre">,
+  genre: string,
+  replace: string[],
+): Promise<void> {
+  const d = database();
+  const mine = `${base(code)}/nominations/${uid}`;
+  const id = push(ref(d, mine)).key!;
+  await update(ref(d), {
+    ...Object.fromEntries(replace.map((old) => [`${mine}/${old}`, null])),
+    [`${mine}/${id}`]: { ...song, genre, at: serverTimestamp() },
+  });
 }
 export const watchMyNominations = (code: string, uid: string, cb: (n: Record<string, Nomination>) => void) =>
   watch<Record<string, Nomination>>(`${base(code)}/nominations/${uid}`, (v) => cb(v || {}));
@@ -183,7 +205,7 @@ export const watchVotes = (code: string, cb: (v: Votes) => void) =>
   watch<Votes>(`${base(code)}/votes`, (v) => cb(v || {}));
 
 // ---- voting (phones) ----
-export async function vote(code: string, index: number, uid: string, v: Vote): Promise<void> {
+export async function vote(code: string, index: number, uid: string, v: Vote = 1): Promise<void> {
   await set(ref(database(), `${base(code)}/votes/${index}/${uid}`), v);
 }
 
