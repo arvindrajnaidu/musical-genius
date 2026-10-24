@@ -8,6 +8,7 @@ import {
   joinUrl,
   setStatus,
   updateSettings,
+  watchAllNominations,
   watchMembers,
   watchMeta,
   watchSettings,
@@ -52,6 +53,7 @@ export function HostLobby() {
   const [meta, setMeta] = useState<RoomMeta | null>(null);
   const [settings, setSettings] = useState<RoomSettings>(DEFAULT_SETTINGS);
   const [members, setMembers] = useState<Record<string, Member>>({});
+  const [picked, setPicked] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +78,9 @@ export function HostLobby() {
       watchMeta(code, setMeta),
       watchSettings(code, (s) => setSettings(s || DEFAULT_SETTINGS)),
       watchMembers(code, setMembers),
+      watchAllNominations(code, (n) =>
+        setPicked(Object.fromEntries(Object.entries(n).map(([uid, p]) => [uid, Object.keys(p || {}).length]))),
+      ),
     ];
     return () => offs.forEach((off) => off());
   }, [code]);
@@ -119,7 +124,7 @@ export function HostLobby() {
   return (
     <div className="grid w-full max-w-7xl grid-cols-1 gap-12 lg:grid-cols-[auto_1fr]">
       <section className="flex flex-col items-center gap-6 rounded-3xl bg-white/5 p-10">
-        <p className="text-2xl text-white/70">Join on your phone</p>
+        <p className="text-2xl text-white/70">Join on your phone and pick your songs</p>
         <div className="rounded-2xl bg-white p-4">
           <QRCodeSVG value={url} size={240} />
         </div>
@@ -142,6 +147,9 @@ export function HostLobby() {
                   className={`rounded-full px-6 py-3 text-2xl font-semibold ${m.online ? "bg-white text-stage" : "bg-white/20 text-white/50"}`}
                 >
                   {m.name}
+                  <span className="ml-2 opacity-60">
+                    {Math.min(picked[uid] || 0, settings.rounds)}/{settings.rounds} 🎵
+                  </span>
                 </li>
               ))}
             </ul>

@@ -81,27 +81,17 @@ export function JoinGame() {
   }
 
   if (joined) {
-    const theme = settings?.theme || "Anything goes";
-    const rounds = settings?.rounds ?? 0;
     return (
       <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
         <p className="text-sm uppercase tracking-widest text-white/60">Room {joined.code}</p>
         {meta === null ? (
           <h1 className="font-display text-3xl font-bold">This game has ended</h1>
-        ) : meta?.status === "lobby" || meta === undefined ? (
-          <>
-            <h1 className="font-display text-4xl font-bold">You&apos;re in, {name.trim()}!</h1>
-            <p className="text-lg text-white/70">Watch the TV. The game starts when the host is ready.</p>
-          </>
-        ) : null}
-        {meta && meta.status !== "lobby" && settings && (
-          <PlayerGame code={joined.code} uid={joined.uid} meta={meta} settings={settings} />
-        )}
-        {settings && meta?.status === "lobby" && (
-          <p className="rounded-xl bg-white/10 px-4 py-3 text-white/80">
-            {theme} · {rounds} {rounds === 1 ? "song" : "songs"} each
+        ) : meta?.status === "lobby" ? (
+          <p className="text-lg text-white/70">
+            You&apos;re in, {name.trim()}! Pick your songs now. The music starts when the host is ready.
           </p>
-        )}
+        ) : null}
+        {meta && settings && <PlayerGame code={joined.code} uid={joined.uid} meta={meta} settings={settings} />}
         <button onClick={leave} className="text-white/50 underline">
           Leave
         </button>

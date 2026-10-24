@@ -73,7 +73,7 @@ function Nominating({
   // Offline usually means a locked phone, not a player who left, so everyone
   // who joined is listed and counted.
   const players = Object.entries(members);
-  const count = (uid: string) => Object.keys(nominations[uid] || {}).length;
+  const count = (uid: string) => Math.min(settings.rounds, Object.keys(nominations[uid] || {}).length);
   const pickers = players.filter(([uid]) => count(uid) > 0).length;
   const total = players.reduce((n, [uid]) => n + count(uid), 0);
   const allDone = players.length > 0 && players.every(([uid]) => count(uid) >= settings.rounds);
@@ -81,7 +81,7 @@ function Nominating({
   async function start() {
     setStarting(true);
     const names = Object.fromEntries(Object.entries(members).map(([uid, m]) => [uid, m.name]));
-    await startMusic(code, buildQueue(nominations, names));
+    await startMusic(code, buildQueue(nominations, names, Math.random, settings.rounds));
   }
 
   return (

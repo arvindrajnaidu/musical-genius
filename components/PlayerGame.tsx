@@ -31,7 +31,9 @@ type Props = { code: string; uid: string; meta: RoomMeta; settings: RoomSettings
 
 // The phone during a game: pick songs, then vote on each one as the TV plays it.
 export function PlayerGame({ code, uid, meta, settings }: Props) {
-  if (meta.status === "nominating") return <Nominate code={code} uid={uid} settings={settings} />;
+  // Picking opens as soon as you join: in the lobby and during the picking phase.
+  if (meta.status === "lobby" || meta.status === "nominating")
+    return <Nominate code={code} uid={uid} settings={settings} />;
   return <PlayAndVote code={code} uid={uid} finished={meta.status === "finished"} />;
 }
 
@@ -46,6 +48,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
 
   const picks = Object.entries(mine).sort(([, a], [, b]) => (a.at || 0) - (b.at || 0));
   const full = picks.length >= settings.rounds;
+  const over = picks.length - settings.rounds;
 
   async function add(song: Song) {
     if (full || picks.some(([, p]) => p.videoId === song.videoId)) return;
@@ -90,8 +93,13 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
       <div className="text-center">
         <h1 className="font-display text-3xl font-bold">Pick your songs</h1>
         <p className="text-white/70">
-          {settings.theme || "Anything goes"} · {picks.length}/{settings.rounds} picked
+          {settings.theme || "Anything goes"} · {Math.min(picks.length, settings.rounds)}/{settings.rounds} picked
         </p>
+        {over > 0 && (
+          <p className="mt-1 text-sm text-amber-200">
+            The host lowered the song count. Remove {over} so your favourites play.
+          </p>
+        )}
       </div>
 
       <ul className="flex flex-col gap-2">

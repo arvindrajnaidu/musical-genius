@@ -14,10 +14,13 @@ export function buildQueue(
   nominations: Record<string, Record<string, Nomination>>,
   names: Record<string, string>,
   random: () => number = Math.random,
+  maxPerPlayer = Infinity,
 ): QueueItem[] {
   const lists = Object.entries(nominations).map(([uid, picks]) => ({
     uid,
-    picks: Object.values(picks || {}).sort((a, b) => (a.at || 0) - (b.at || 0)),
+    picks: Object.values(picks || {})
+      .sort((a, b) => (a.at || 0) - (b.at || 0))
+      .slice(0, maxPerPlayer),
   }));
   const longest = Math.max(0, ...lists.map((l) => l.picks.length));
   const queue: QueueItem[] = [];
