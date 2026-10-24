@@ -73,6 +73,7 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
         if (!found.length) setError("No results. Try another search.");
       } else setError("Paste a YouTube link (Share → Copy link in the YouTube app).");
     } catch (err) {
+      console.error(err);
       const m = err instanceof Error ? err.message : "";
       setError(
         m === "not-embeddable"
@@ -81,7 +82,9 @@ function Nominate({ code, uid, settings }: { code: string; uid: string; settings
             ? "Couldn't find that video."
             : m === "search-quota"
               ? "Search is out of juice for today. Paste a YouTube link instead."
-              : "Something went wrong. Try again.",
+              : /permission/i.test(m)
+                ? "The game server refused that song. (Host: make sure the latest database rules are deployed.)"
+                : "Something went wrong. Try again.",
       );
     } finally {
       setBusy(false);
