@@ -83,3 +83,15 @@ describe("parseVideoId", () => {
     expect(parseVideoId(input)).toBe(id);
   });
 });
+
+describe("buildQueue maxPerPlayer", () => {
+  it("only takes each player's earliest picks up to the limit", () => {
+    const q = buildQueue(
+      { a: { x: nom("a1aaaaaaaaa", 1), y: nom("a2aaaaaaaaa", 2), z: nom("a3aaaaaaaaa", 3) } },
+      { a: "Ann" },
+      Math.random,
+      2,
+    );
+    expect(q.map((i) => i.videoId)).toEqual(["a1aaaaaaaaa", "a2aaaaaaaaa"]);
+  });
+});

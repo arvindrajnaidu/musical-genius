@@ -30,8 +30,8 @@
           ".write": "auth != null && root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid",
           "$uid": {
             ".read": "auth != null && $uid === auth.uid",
-            ".write": "auth != null && $uid === auth.uid && root.child('rooms/'+$code+'/meta/status').val() === 'nominating' && root.child('rooms/'+$code+'/members/'+auth.uid).exists()",
-            ".validate": "newData.numChildren() <= root.child('rooms/'+$code+'/settings/rounds').val()",
+            ".write": "auth != null && $uid === auth.uid && (root.child('rooms/'+$code+'/meta/status').val() === 'lobby' || root.child('rooms/'+$code+'/meta/status').val() === 'nominating') && root.child('rooms/'+$code+'/members/'+auth.uid).exists()",
+            ".validate": "newData.numChildren() <= root.child('rooms/'+$code+'/settings/rounds').val() || newData.numChildren() < data.numChildren()",
             "$id": {
               ".validate": "newData.hasChildren(['videoId', 'title', 'at'])",
               "videoId": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_-]{11}$/)" },
