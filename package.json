@@ -9,12 +9,13 @@
     "start": "next start",
     "lint": "eslint",
     "cap:sync": "npm run build:native && cap sync",
-    "cap:assets": "capacitor-assets generate --iconBackgroundColor '#1e1b4b' --iconBackgroundColorDark '#1e1b4b' --splashBackgroundColor '#1e1b4b' --splashBackgroundColorDark '#1e1b4b' --logoSplashScale 0.4",
+    "cap:assets": "capacitor-assets generate --iconBackgroundColor '#1e1b4b' --iconBackgroundColorDark '#1e1b4b' --splashBackgroundColor '#1e1b4b' --splashBackgroundColorDark '#1e1b4b' --logoSplashScale 0.4 && rm -rf icons public/manifest.webmanifest",
     "ios": "npm run build:native && cap sync ios && cap open ios",
     "android": "npm run build:native && cap sync android && cap open android",
     "rules:deploy": "npx -y firebase-tools deploy --only database",
     "test": "vitest run",
-    "rules:check": "node scripts/rules-check.mjs"
+    "rules:check": "node scripts/rules-check.mjs",
+    "ios:testflight": "npm run build:native && cap sync ios && bash scripts/testflight.sh"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
