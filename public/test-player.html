@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player Test</title>
+<style>
+  :root { --bg: #14102a; --card: #241d45; --text: #fff; --dim: #a9a3c9; --ok: #3ddc97; --bad: #ff5d73; --warn: #ffc857; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.note { color: var(--dim); margin: 0 0 12px; font-size: 14px; }
+  #player-wrap { position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 8px; }
+  #player { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; }
+  #status { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--card); font-size: 14px; min-height: 42px; }
+  form { display: flex; gap: 8px; margin: 12px 0; }
+  input { flex: 1; min-width: 0; padding: 12px; border-radius: 10px; border: 0; font-size: 16px; }
+  button { padding: 12px 14px; border-radius: 10px; border: 0; background: #fff; color: var(--bg); font-weight: 600; font-size: 15px; }
+  h2 { font-size: 16px; color: var(--dim); margin: 16px 0 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  li button { width: 100%; text-align: left; background: var(--card); color: var(--text); font-weight: 400; display: flex; gap: 10px; align-items: center; }
+  li .who { flex: 1; min-width: 0; }
+  li .meta { display: block; color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
+  .tag { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 99px; background: #ffffff22; white-space: nowrap; }
+  .tag.ok { background: var(--ok); color: #000; } .tag.bad { background: var(--bad); color: #000; } .tag.warn { background: var(--warn); color: #000; }
+  #log { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--dim); white-space: pre-wrap; background: var(--card); padding: 10px; border-radius: 10px; max-height: 240px; overflow: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Player test</h1>
+  <p class="note">Same YouTube player and settings as the TV. Tap a song: list songs go through the app's song lookup (/api/song), pasted links play as-is. Each row shows whether it played.</p>
+
+  <div id="player-wrap">
+    <div id="player"></div>
+    <div id="status">Tap a song to start.</div>
+  </div>
+
+  <form id="paste">
+    <input id="link" placeholder="Paste a YouTube link or video id" autocomplete="off">
+    <button>Play</button>
+  </form>
+
+  <h2>Songs from the app's lists (looked up like a tap in the app)</h2>
+  <ul id="songs"></ul>
+
+  <h2>Pasted links</h2>
+  <ul id="pasted"></ul>
+
+  <h2>Log</h2>
+  <div id="log"></div>
+</main>
+
+<script>
+// Same playerVars as components/YouTubePlayer.tsx.
+const PLAYER_VARS = { autoplay: 1, controls: 0, rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3 };
+const STUCK_MS = 15000;
+
+const SONGS = [
+  ["ABBA", "Dancing Queen"], ["Earth, Wind & Fire", "September"], ["Toto", "Africa"],
+  ["Queen", "Bohemian Rhapsody"], ["The Weeknd", "Blinding Lights"], ["Taylor Swift", "Shake It Off"],
+  ["Eminem", "Lose Yourself"], ["Avicii", "Levels"], ["Calvin Harris", "Summer"],
+  ["Alan Walker", "Faded"], ["Daft Punk", "One More Time"], ["Acid Notation", "Spiders"],
+  ["DJVI", "Back on Track"], ["Waterflame", "Electroman Adventures"], ["Zach Striefel", "Massif"],
+  ["A.R. Rahman", "Jai Ho"], ["Arijit Singh", "Kesariya"],
+];
+
+const ERRORS = {
+  2: "invalid video id",
+  5: "HTML5 player error (can't play in this browser)",
+  100: "video not found / removed / private",
+  101: "owner blocks embedding",
+  150: "owner blocks embedding",
+  152: "embedding not allowed here",
+  153: "missing referrer / player config error",
+};
+const STATES = { "-1": "unstarted", 0: "ended", 1: "playing", 2: "paused", 3: "buffering", 5: "cued" };
+
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const l = $("log"); l.textContent = `${new Date().toLocaleTimeString()}  ${m}\n` + l.textContent; };
+const status = (m) => { $("status").textContent = m; };
+
+let player = null, ready = null, current = null, stuckTimer = null;
+
+function loadApi() {
+  return new Promise((resolve) => {
+    window.onYouTubeIframeAPIReady = resolve;
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
+  });
+}
+
+function setTag(row, cls, text) {
+  const t = row.querySelector(".tag");
+  t.className = "tag " + cls;
+  t.textContent = text;
+}
+
+function finish(cls, text) {
+  if (!current) return;
+  clearTimeout(stuckTimer);
+  setTag(current.row, cls, text);
+  status(`${current.label}: ${text}`);
+  log(`${current.videoId} → ${text}`);
+  if (cls !== "ok") current = null;
+}
+
+async function play(videoId, row, label) {
+  clearTimeout(stuckTimer);
+  current = { videoId, row, label, started: false };
+  setTag(row, "warn", "loading…");
+  status(`${label}: loading ${videoId}…`);
+  log(`load ${videoId} (${label})`);
+  stuckTimer = setTimeout(() => {
+    if (current && current.videoId === videoId && !current.started) finish("bad", `stuck: not playing after ${STUCK_MS / 1000}s`);
+  }, STUCK_MS);
+
+  if (!player) {
+    const YT = await (ready ||= loadApi().then(() => window.YT));
+    await new Promise((resolve) => {
+      player = new YT.Player("player", {
+        videoId,
+        playerVars: PLAYER_VARS,
+        events: {
+          onReady: () => { player.playVideo(); resolve(); },
+          onStateChange: (e) => {
+            log(`  state: ${STATES[e.data] ?? e.data}`);
+            if (e.data === 1 && current && !current.started) {
+              current.started = true;
+              finish("ok", "plays ✓");
+            }
+          },
+          onError: (e) => finish("bad", `error ${e.data}: ${ERRORS[e.data] || "unknown"}`),
+        },
+      });
+    });
+  } else {
+    player.loadVideoById(videoId);
+  }
+}
+
+function addRow(list, title, sub) {
+  const li = document.createElement("li");
+  li.innerHTML = `<button><span class="who"></span><span class="tag">tap</span></button>`;
+  li.querySelector(".who").innerHTML = `<span></span><span class="meta"></span>`;
+  li.querySelector(".who span").textContent = title;
+  li.querySelector(".meta").textContent = sub;
+  list.appendChild(li);
+  return li;
+}
+
+for (const [artist, title] of SONGS) {
+  const row = addRow($("songs"), title, artist);
+  row.querySelector("button").onclick = async () => {
+    setTag(row, "warn", "looking up…");
+    try {
+      const qs = new URLSearchParams({ artist, title });
+      const r = await fetch(`/api/song?${qs}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTag(row, "bad", `lookup failed: ${j.error || r.status}`);
+        log(`lookup ${artist} – ${title} → ${r.status} ${j.error || ""}`);
+        return;
+      }
+      row.querySelector(".meta").textContent = `${artist} → ${j.videoId} · “${j.title}” · ${j.channel}`;
+      log(`lookup ${artist} – ${title} → ${j.videoId} (${j.channel})`);
+      play(j.videoId, row, title);
+    } catch (e) {
+      setTag(row, "bad", "lookup failed: network");
+      log(`lookup ${artist} – ${title} → ${e}`);
+    }
+  };
+}
+
+// Same parsing as lib/youtube.ts parseVideoId.
+function parseVideoId(input) {
+  const s = input.trim();
+  const ID = /^[A-Za-z0-9_-]{11}$/;
+  if (ID.test(s)) return s;
+  let url;
+  try { url = new URL(s.startsWith("http") ? s : `https://${s}`); } catch { return null; }
+  const host = url.hostname.replace(/^(www|m|music)\./, "");
+  let id = null;
+  if (host === "youtu.be") id = url.pathname.split("/")[1] || null;
+  else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    id = url.searchParams.get("v");
+    const m = url.pathname.match(/^\/(shorts|embed|live|v)\/([^/?#]+)/);
+    if (!id && m) id = m[2];
+  }
+  return id && ID.test(id) ? id : null;
+}
+
+$("paste").onsubmit = (e) => {
+  e.preventDefault();
+  const id = parseVideoId($("link").value);
+  if (!id) return status("That doesn't look like a YouTube link.");
+  $("link").value = "";
+  const row = addRow($("pasted"), id, "pasted link");
+  row.querySelector("button").onclick = () => play(id, row, id);
+  play(id, row, id);
+};
+</script>
+</body>
+</html>
