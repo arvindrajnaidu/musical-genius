@@ -5,7 +5,9 @@ import { QRCodeSVG } from "qrcode.react";
 import { ensureSignedIn } from "@/lib/firebase/auth";
 import {
   createRoom,
+  genresOf,
   joinUrl,
+  setGenres,
   setStatus,
   updateSettings,
   watchAllNominations,
@@ -13,6 +15,7 @@ import {
   watchMeta,
   watchSettings,
   DEFAULT_SETTINGS,
+  MAX_GENRES,
   type Member,
   type RoomMeta,
   type RoomSettings,
@@ -22,9 +25,12 @@ import { db } from "@/lib/firebase/client";
 import { errorMessage } from "@/lib/errors";
 import { load, save } from "@/lib/storage";
 import { enterFullscreen } from "@/lib/fullscreen";
+import { SHELVES } from "@/lib/songs";
+import type { Nomination } from "@/lib/game";
 import { HostGame } from "./HostGame";
 
-const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "EDM", "Geometry Dash", "Rolling Sky", "Bollywood"];
+// Every song shelf is a genre the host can make a round of.
+const GENRES = Object.keys(SHELVES);
 const CLIPS = [
   { seconds: 0, label: "Whole song" },
   { seconds: 30, label: "30s" },
@@ -46,7 +52,7 @@ async function resumeOrCreate(uid: string): Promise<string> {
   return code;
 }
 
-// The TV's lobby: big join code + QR, live player list, round/theme settings,
+// The TV's lobby: big join code + QR, live player list, genres (= rounds),
 // and Start. Designed to be read from across a room.
 export function HostLobby() {
   const [code, setCode] = useState<string | null>(null);
@@ -54,7 +60,7 @@ export function HostLobby() {
   const [meta, setMeta] = useState<RoomMeta | null>(null);
   const [settings, setSettings] = useState<RoomSettings>(DEFAULT_SETTINGS);
   const [members, setMembers] = useState<Record<string, Member>>({});
-  const [picked, setPicked] = useState<Record<string, number>>({});
+  const [nominations, setNominations] = useState<Record<string, Record<string, Nomination>>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -79,9 +85,7 @@ export function HostLobby() {
       watchMeta(code, setMeta),
       watchSettings(code, (s) => setSettings(s || DEFAULT_SETTINGS)),
       watchMembers(code, setMembers),
-      watchAllNominations(code, (n) =>
-        setPicked(Object.fromEntries(Object.entries(n).map(([uid, p]) => [uid, Object.keys(p || {}).length]))),
-      ),
+      watchAllNominations(code, setNominations),
     ];
     return () => offs.forEach((off) => off());
   }, [code]);
@@ -115,7 +119,13 @@ export function HostLobby() {
   // usually just locked their phone and will be back when it wakes.
   const joinedCount = players.length;
   const url = joinUrl(code);
-  const theme = settings.theme || THEMES[0];
+  const genres = genresOf(settings);
+  const picked = (uid: string) => {
+    const mine = Object.values(nominations[uid] || {});
+    return genres.filter((g) => mine.some((n) => n.genre === g)).length;
+  };
+  const toggleGenre = (g: string) =>
+    setGenres(code, genres.includes(g) ? genres.filter((x) => x !== g) : [...genres, g].slice(0, MAX_GENRES));
   const clip = settings.clipSeconds ?? DEFAULT_SETTINGS.clipSeconds;
 
   if (meta && meta.status !== "lobby") {
@@ -149,7 +159,7 @@ export function HostLobby() {
                 >
                   {m.name}
                   <span className="ml-2 opacity-60">
-                    {Math.min(picked[uid] || 0, settings.rounds)}/{settings.rounds} 🎵
+                    {picked(uid)}/{genres.length} 🎵
                   </span>
                 </li>
               ))}
@@ -158,37 +168,28 @@ export function HostLobby() {
         </div>
 
         <div>
-          <h2 className="mb-4 text-3xl font-semibold">Theme</h2>
+          <h2 className="mb-1 text-3xl font-semibold">
+            Genres <span className="text-white/50">({genres.length} {genres.length === 1 ? "round" : "rounds"})</span>
+          </h2>
+          <p className="mb-4 text-xl text-white/50">
+            Tap in the order you want to play them. Everyone picks one song per genre.
+          </p>
           <div className="flex flex-wrap gap-3">
-            {THEMES.map((t) => (
-              <button
-                key={t}
-                onClick={() => updateSettings(code, { theme: t === THEMES[0] ? "" : t })}
-                className={`rounded-full px-5 py-2 text-xl ${t === theme ? "bg-white text-stage" : "border-2 border-white/30"}`}
-              >
-                {t}
-              </button>
-            ))}
+            {GENRES.map((g) => {
+              const n = genres.indexOf(g);
+              return (
+                <button
+                  key={g}
+                  aria-pressed={n >= 0}
+                  onClick={() => toggleGenre(g)}
+                  className={`rounded-full px-5 py-2 text-xl ${n >= 0 ? "bg-white font-semibold text-stage" : "border-2 border-white/30"}`}
+                >
+                  {n >= 0 && <span className="mr-1 opacity-60">{n + 1} ·</span>}
+                  {g}
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        <div className="flex items-center gap-6">
-          <h2 className="text-3xl font-semibold">Songs each</h2>
-          <button
-            aria-label="Fewer songs"
-            onClick={() => updateSettings(code, { rounds: Math.max(1, settings.rounds - 1) })}
-            className="h-14 w-14 rounded-full border-2 border-white/30 text-3xl"
-          >
-            −
-          </button>
-          <span className="w-10 text-center text-4xl font-bold">{settings.rounds}</span>
-          <button
-            aria-label="More songs"
-            onClick={() => updateSettings(code, { rounds: Math.min(10, settings.rounds + 1) })}
-            className="h-14 w-14 rounded-full border-2 border-white/30 text-3xl"
-          >
-            +
-          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -206,7 +207,7 @@ export function HostLobby() {
 
         <div className="flex items-center gap-6">
           <button
-            disabled={joinedCount < MIN_PLAYERS}
+            disabled={joinedCount < MIN_PLAYERS || genres.length === 0}
             onClick={() => {
               enterFullscreen();
               setStatus(code, "nominating");
@@ -215,7 +216,11 @@ export function HostLobby() {
           >
             Start game
           </button>
-          {joinedCount < MIN_PLAYERS && <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>}
+          {joinedCount < MIN_PLAYERS ? (
+            <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>
+          ) : (
+            genres.length === 0 && <p className="text-xl text-white/50">Pick at least one genre</p>
+          )}
           <button onClick={newRoom} className="ml-auto text-xl text-white/50 underline">
             New room
           </button>

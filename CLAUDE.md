@@ -3,8 +3,12 @@
 Musical Genius is a Kahoot-style party game. The host opens the web app on a TV
 browser (`/tv`); that screen shows the room code and is the only device that
 plays music (YouTube IFrame Player). Guests join from phones (`/play`, or the
-iOS/Android app) to nominate songs and vote 👍/👎 while each one plays. After the
-set number of rounds, the song with the most votes wins.
+iOS/Android app) to pick songs and vote. The host chooses an ordered list of
+genres; each genre is one round, and every player picks one song per genre. A
+round plays that genre's songs back to back, and each player has one vote per
+round: voting on a later song moves it there (the last vote counts, no 👎, never
+your own song). When every genre has played, the player whose songs collected
+the most votes wins.
 
 ## Commands
 
@@ -39,6 +43,13 @@ Room data lives at `rooms/<CODE>/{meta,settings,members,nominations,queue,play,v
 see `lib/room.ts`. Status flow: lobby → nominating → playing → finished. The TV is
 authoritative: it builds the queue, drives `play` (index + playing/reveal) and
 ends clips; phones only write their own nominations and votes.
+
+Rounds live in `settings.genres` (`rounds` mirrors its length for older builds);
+nominations and queue items carry `genre`/`round`. Votes stay one value per
+song (`votes/<songIndex>/<uid>` = 1, writable only while that song plays), and
+`lib/game.ts` (`roundVote`, `tally`) turns them into one vote per round: the
+latest song in the round a player voted on holds it. That kept the database
+rules unchanged.
 
 Finding songs (`lib/songs.ts`): phones search Apple's iTunes Search API as they
 type (free, no key) and browse themed shelves (`SHELVES`, named like the host's
