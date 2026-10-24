@@ -2,11 +2,16 @@
 // constrained by database.rules.json. Same shape as irummy's @cardkit/net rooms,
 // adapted for one TV host plus many phone players:
 //
-//   rooms/<CODE>/meta              { hostUid, status, createdAt }
-//   rooms/<CODE>/settings          { rounds, theme }       (host writes)
-//   rooms/<CODE>/members/<uid>     { name, online, joinedAt } (each player writes their own)
+//   rooms/<CODE>/meta                    { hostUid, status, createdAt }
+//   rooms/<CODE>/settings                { rounds, theme, clipSeconds } (host writes)
+//   rooms/<CODE>/members/<uid>           { name, online, joinedAt } (each player writes their own)
+//   rooms/<CODE>/nominations/<uid>/<id>  Nomination (player writes own; only they and the host read)
+//   rooms/<CODE>/queue                   QueueItem[] (host writes when the music starts)
+//   rooms/<CODE>/play                    { index, phase, startedAt } (host drives playback)
+//   rooms/<CODE>/votes/<index>/<uid>     1 | -1 (player writes own, only while that song plays)
 import {
   ref,
+  push,
   get,
   set,
   update,
@@ -16,14 +21,19 @@ import {
   serverTimestamp,
 } from "firebase/database";
 import { db } from "./firebase/client";
+import type { Nomination, QueueItem, Vote, Votes } from "./game";
 
 export type RoomStatus = "lobby" | "nominating" | "playing" | "finished";
 
 export type RoomMeta = { hostUid: string; status: RoomStatus; createdAt: number };
-export type RoomSettings = { rounds: number; theme: string };
+// clipSeconds: how much of each song plays before the reveal (0 = whole song).
+export type RoomSettings = { rounds: number; theme: string; clipSeconds: number };
+// "playing" while the song is on and votes are open; "reveal" shows who picked it
+// and the tally before the next song.
+export type Play = { index: number; phase: "playing" | "reveal"; startedAt: number };
 export type Member = { name: string; online: boolean; joinedAt: number };
 
-export const DEFAULT_SETTINGS: RoomSettings = { rounds: 3, theme: "" };
+export const DEFAULT_SETTINGS: RoomSettings = { rounds: 3, theme: "", clipSeconds: 60 };
 export const MAX_PLAYERS = 20;
 
 // Room codes are typed on phones across a loud room, so: 4 letters, no digits,
@@ -84,12 +94,29 @@ export async function joinRoom(code: string, uid: string, name: string): Promise
     online: true,
     joinedAt: members[uid]?.joinedAt ?? serverTimestamp(),
   });
+}
+
+// Keep `online` true whenever this phone is connected. An onDisconnect handler
+// fires once and is not re-armed, so a phone that locked its screen (dropping
+// the socket) would otherwise stay "offline" after it reconnects. Re-arm and
+// re-mark on every (re)connect instead. Returns an unsubscribe.
+export function trackPresence(code: string, uid: string): () => void {
+  const d = database();
   const onlineRef = ref(d, `${base(code)}/members/${uid}/online`);
-  onDisconnect(onlineRef).set(false);
+  return onValue(ref(d, ".info/connected"), async (snap) => {
+    if (snap.val() !== true) return;
+    await onDisconnect(onlineRef).set(false);
+    // Only re-mark if we're still a member (not removed via Leave).
+    const name = (await get(ref(d, `${base(code)}/members/${uid}/name`))).val();
+    if (name) await set(onlineRef, true);
+  });
 }
 
 export async function leaveRoom(code: string, uid: string): Promise<void> {
-  await set(ref(database(), `${base(code)}/members/${uid}`), null);
+  const d = database();
+  // Cancel the armed presence write, or it would recreate a nameless entry.
+  await onDisconnect(ref(d, `${base(code)}/members/${uid}/online`)).cancel();
+  await set(ref(d, `${base(code)}/members/${uid}`), null);
 }
 
 export async function updateSettings(code: string, settings: Partial<RoomSettings>): Promise<void> {
@@ -109,6 +136,55 @@ export const watchSettings = (code: string, cb: (s: RoomSettings | null) => void
   watch<RoomSettings>(`${base(code)}/settings`, cb);
 export const watchMembers = (code: string, cb: (m: Record<string, Member>) => void) =>
   watch<Record<string, Member>>(`${base(code)}/members`, (v) => cb(v || {}));
+
+// ---- nominations (phones) ----
+export async function nominate(code: string, uid: string, song: Omit<Nomination, "at">): Promise<void> {
+  await push(ref(database(), `${base(code)}/nominations/${uid}`), { ...song, at: serverTimestamp() });
+}
+export async function removeNomination(code: string, uid: string, id: string): Promise<void> {
+  await set(ref(database(), `${base(code)}/nominations/${uid}/${id}`), null);
+}
+export const watchMyNominations = (code: string, uid: string, cb: (n: Record<string, Nomination>) => void) =>
+  watch<Record<string, Nomination>>(`${base(code)}/nominations/${uid}`, (v) => cb(v || {}));
+// Host only (rules): everyone's picks, to show progress and build the queue.
+export const watchAllNominations = (
+  code: string,
+  cb: (n: Record<string, Record<string, Nomination>>) => void,
+) => watch<Record<string, Record<string, Nomination>>>(`${base(code)}/nominations`, (v) => cb(v || {}));
+
+// ---- playback (host) ----
+// One multi-path update so phones never see a queue without a matching play state.
+export async function startMusic(code: string, queue: QueueItem[]): Promise<void> {
+  await update(ref(database()), {
+    [`${base(code)}/queue`]: queue,
+    [`${base(code)}/votes`]: null,
+    [`${base(code)}/play`]: { index: 0, phase: "playing", startedAt: serverTimestamp() },
+    [`${base(code)}/meta/status`]: "playing",
+  });
+}
+export async function setPlay(code: string, play: Omit<Play, "startedAt">): Promise<void> {
+  await set(ref(database(), `${base(code)}/play`), { ...play, startedAt: serverTimestamp() });
+}
+// Back to the lobby with the same players; picks, queue and votes are cleared.
+export async function resetGame(code: string): Promise<void> {
+  await update(ref(database()), {
+    [`${base(code)}/nominations`]: null,
+    [`${base(code)}/queue`]: null,
+    [`${base(code)}/votes`]: null,
+    [`${base(code)}/play`]: null,
+    [`${base(code)}/meta/status`]: "lobby",
+  });
+}
+export const watchQueue = (code: string, cb: (q: QueueItem[]) => void) =>
+  watch<QueueItem[]>(`${base(code)}/queue`, (v) => cb(v || []));
+export const watchPlay = (code: string, cb: (p: Play | null) => void) => watch<Play>(`${base(code)}/play`, cb);
+export const watchVotes = (code: string, cb: (v: Votes) => void) =>
+  watch<Votes>(`${base(code)}/votes`, (v) => cb(v || {}));
+
+// ---- voting (phones) ----
+export async function vote(code: string, index: number, uid: string, v: Vote): Promise<void> {
+  await set(ref(database(), `${base(code)}/votes/${index}/${uid}`), v);
+}
 
 // The link phones open (and the QR code on the TV encodes). Native webviews run
 // at capacitor://localhost, which isn't shareable, so fall back to the site URL.

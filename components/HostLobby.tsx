@@ -20,8 +20,15 @@ import { get, ref } from "firebase/database";
 import { db } from "@/lib/firebase/client";
 import { errorMessage } from "@/lib/errors";
 import { load, save } from "@/lib/storage";
+import { HostGame } from "./HostGame";
 
 const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "Bollywood"];
+const CLIPS = [
+  { seconds: 30, label: "30s" },
+  { seconds: 60, label: "1 min" },
+  { seconds: 90, label: "90s" },
+  { seconds: 0, label: "Whole song" },
+];
 const MIN_PLAYERS = 2;
 
 // Reuse this TV's room across a refresh (sessionStorage is per tab), as long as
@@ -98,24 +105,15 @@ export function HostLobby() {
   if (!code) return <p className="text-3xl text-white/70">Creating a room…</p>;
 
   const players = Object.entries(members).sort(([, a], [, b]) => (a.joinedAt || 0) - (b.joinedAt || 0));
-  const online = players.filter(([, m]) => m.online).length;
+  // Everyone who joined counts toward starting: a dimmed (offline) player has
+  // usually just locked their phone and will be back when it wakes.
+  const joinedCount = players.length;
   const url = joinUrl(code);
   const theme = settings.theme || THEMES[0];
+  const clip = settings.clipSeconds ?? DEFAULT_SETTINGS.clipSeconds;
 
   if (meta && meta.status !== "lobby") {
-    return (
-      <div className="flex flex-col items-center gap-6 text-center">
-        <p className="text-2xl uppercase tracking-widest text-white/60">Room {code}</p>
-        <h1 className="font-display text-7xl font-bold">Nominations are open!</h1>
-        <p className="text-3xl text-white/70">
-          {theme} · {settings.rounds} {settings.rounds === 1 ? "song" : "songs"} each
-        </p>
-        <p className="text-xl text-white/50">(Song picking and playback arrive in the next step.)</p>
-        <button onClick={() => setStatus(code, "lobby")} className="mt-4 text-xl text-white/60 underline">
-          Back to lobby
-        </button>
-      </div>
-    );
+    return <HostGame code={code} meta={meta} settings={settings} members={members} onNewRoom={newRoom} />;
   }
 
   return (
@@ -132,7 +130,7 @@ export function HostLobby() {
       <section className="flex flex-col gap-8">
         <div>
           <h2 className="mb-4 text-3xl font-semibold">
-            Players <span className="text-white/50">({online})</span>
+            Players <span className="text-white/50">({joinedCount})</span>
           </h2>
           {players.length === 0 ? (
             <p className="text-2xl text-white/50">Waiting for people to join…</p>
@@ -184,15 +182,28 @@ export function HostLobby() {
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="mr-3 text-3xl font-semibold">Play each</h2>
+          {CLIPS.map((c) => (
+            <button
+              key={c.seconds}
+              onClick={() => updateSettings(code, { clipSeconds: c.seconds })}
+              className={`rounded-full px-5 py-2 text-xl ${c.seconds === clip ? "bg-white text-stage" : "border-2 border-white/30"}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-6">
           <button
-            disabled={online < MIN_PLAYERS}
+            disabled={joinedCount < MIN_PLAYERS}
             onClick={() => setStatus(code, "nominating")}
             className="rounded-2xl bg-like px-10 py-5 text-3xl font-bold text-stage disabled:opacity-40"
           >
             Start game
           </button>
-          {online < MIN_PLAYERS && <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>}
+          {joinedCount < MIN_PLAYERS && <p className="text-xl text-white/50">Needs at least {MIN_PLAYERS} players</p>}
           <button onClick={newRoom} className="ml-auto text-xl text-white/50 underline">
             New room
           </button>
