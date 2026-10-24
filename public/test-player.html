@@ -157,7 +157,8 @@ for (const [artist, title] of SONGS) {
     setTag(row, "warn", "looking up…");
     try {
       const qs = new URLSearchParams({ artist, title });
-      const r = await fetch(`/api/song?${qs}`);
+      // The production lookup, same as the native app (lib/site.ts); previews may lack the key.
+      const r = await fetch(`https://musical-genius.vercel.app/api/song?${qs}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         setTag(row, "bad", `lookup failed: ${j.error || r.status}`);
