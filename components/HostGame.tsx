@@ -11,6 +11,7 @@ import {
   watchPlay,
   watchQueue,
   watchVotes,
+  DEFAULT_SETTINGS,
   type Member,
   type Play,
   type RoomMeta,
@@ -140,7 +141,7 @@ function Playing({
 }) {
   const { index, phase } = play;
   const song = queue[index];
-  const clip = settings.clipSeconds ?? 60;
+  const clip = settings.clipSeconds ?? DEFAULT_SETTINGS.clipSeconds;
   const [startedAt, setStartedAt] = useState<{ index: number; at: number } | null>(null);
   const [failed, setFailed] = useState<number | null>(null);
   const songVotes = Object.entries(votes[String(index)] || {}).filter(([uid]) => uid !== song.by);

@@ -25,10 +25,10 @@ import { HostGame } from "./HostGame";
 
 const THEMES = ["Anything goes", "80s", "90s", "2000s", "Rock", "Hip-hop", "Pop", "Bollywood"];
 const CLIPS = [
+  { seconds: 0, label: "Whole song" },
   { seconds: 30, label: "30s" },
   { seconds: 60, label: "1 min" },
   { seconds: 90, label: "90s" },
-  { seconds: 0, label: "Whole song" },
 ];
 const MIN_PLAYERS = 2;
 
