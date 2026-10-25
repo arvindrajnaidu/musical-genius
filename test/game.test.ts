@@ -131,6 +131,27 @@ describe("tally", () => {
   it("works with no votes", () => {
     expect(tally(queue, {}).players.every((p) => p.score === 0)).toBe(true);
   });
+
+  it("lets a recap vote override the round's per-song votes", () => {
+    // c's last per-song vote in the 80s was b's song; in the recap c moves it back to a's.
+    const votes = { "0": { c: 1 as const }, "1": { c: 1 as const }, "4": { c: 1 as const } };
+    const roundVotes = { "0": { c: 0 } };
+    expect(roundVote(queue, votes, 0, "c", roundVotes)).toBe(0);
+    const { songs } = tally(queue, votes, roundVotes);
+    // The 90s round is untouched by the 80s recap.
+    expect(songs.map((s) => s.votes)).toEqual([1, 0, 0, 0, 1, 0]);
+  });
+
+  it("counts a recap vote from someone who didn't vote during the songs", () => {
+    expect(tally(queue, {}, { "1": { a: 4 } }).songs[4].votes).toBe(1);
+  });
+
+  it("ignores recap votes for your own song or another round's song", () => {
+    const votes = { "1": { a: 1 as const } };
+    expect(roundVote(queue, votes, 0, "a", { "0": { a: 0 } })).toBe(1); // own song
+    expect(roundVote(queue, votes, 0, "a", { "0": { a: 4 } })).toBe(1); // 90s song in the 80s recap
+    expect(roundVote(queue, votes, 0, "a", { "0": { a: 99 } })).toBe(1); // no such song
+  });
 });
 
 describe("parseVideoId", () => {

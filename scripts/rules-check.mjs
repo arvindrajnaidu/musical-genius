@@ -72,9 +72,22 @@ await expectDenied("votes closed at reveal", set(ref(ann, `${b}/votes/0/ann1`), 
 await expectOk("host next song", set(ref(host, `${b}/play`), { index: 1, phase: "playing", startedAt: serverTimestamp() }));
 await expectOk("Ann votes on song 1", set(ref(ann, `${b}/votes/1/ann1`), 1));
 await expectOk("everyone reads votes", get(ref(ann, `${b}/votes`)));
+await expectDenied("no recap vote while a song plays", set(ref(ann, `${b}/roundVotes/0/ann1`), 1));
+await expectOk("host opens the round recap", set(ref(host, `${b}/play`), { index: 1, phase: "recap", round: 0, endsAt: Date.now() + 15000, startedAt: serverTimestamp() }));
+await expectOk("Ann moves her vote in the recap", set(ref(ann, `${b}/roundVotes/0/ann1`), 1));
+await expectDenied("Ann can't recap-vote her own song", set(ref(ann, `${b}/roundVotes/0/ann1`), 0));
+await expectDenied("recap vote must be a song in the queue", set(ref(ann, `${b}/roundVotes/0/ann1`), 7));
+await expectDenied("recap vote must be a number", set(ref(ann, `${b}/roundVotes/0/ann1`), "1"));
+await expectDenied("Bob can't recap-vote as Ann", set(ref(bob, `${b}/roundVotes/0/ann1`), 1));
+await expectDenied("no recap vote for another round", set(ref(bob, `${b}/roundVotes/1/bob1`), 0));
+await expectDenied("Eve (not joined) can't recap-vote", set(ref(eve, `${b}/roundVotes/0/eve1`), 1));
+await expectDenied("per-song votes closed during recap", set(ref(bob, `${b}/votes/1/bob1`), 1));
+await expectOk("everyone reads round votes", get(ref(bob, `${b}/roundVotes`)));
+await expectOk("host announces the round winner", set(ref(host, `${b}/play`), { index: 1, phase: "winner", round: 0, startedAt: serverTimestamp() }));
+await expectDenied("recap votes closed after the countdown", set(ref(bob, `${b}/roundVotes/0/bob1`), 0));
 await expectOk("host finishes", update(ref(host, `${b}/meta`), { status: "finished" }));
 await expectOk("host resets", update(ref(host), {
-  [`${b}/nominations`]: null, [`${b}/queue`]: null, [`${b}/votes`]: null, [`${b}/play`]: null, [`${b}/meta/status`]: "lobby",
+  [`${b}/nominations`]: null, [`${b}/queue`]: null, [`${b}/votes`]: null, [`${b}/roundVotes`]: null, [`${b}/play`]: null, [`${b}/meta/status`]: "lobby",
 }));
 await expectOk("Ann leaves", onDisconnect(ref(ann, `${b}/members/ann1/online`)).cancel().then(() => set(ref(ann, `${b}/members/ann1`), null)));
 await expectDenied("nameless member entry rejected", set(ref(ann, `${b}/members/ann1/online`), false));
