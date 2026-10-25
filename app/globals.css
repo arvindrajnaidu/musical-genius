@@ -25,3 +25,9 @@ body {
   background: var(--stage);
   color: white;
 }
+
+/* TV "Up next" card: a bar that fills over the break (duration set inline). */
+@keyframes fill-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
