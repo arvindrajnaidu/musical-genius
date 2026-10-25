@@ -41,8 +41,8 @@ with `npm run rules:deploy` after changing `database.rules.json`.
 
 Room data lives at `rooms/<CODE>/{meta,settings,members,nominations,queue,play,votes}`;
 see `lib/room.ts`. Status flow: lobby → nominating → playing → finished. The TV is
-authoritative: it builds the queue, drives `play` (index + playing/reveal) and
-ends clips; phones only write their own nominations and votes.
+authoritative: it builds the queue, drives `play` (index + playing/reveal; songs play in full and only the host
+moves on); phones only write their own nominations and votes.
 
 Rounds live in `settings.genres` (`rounds` mirrors its length for older builds);
 nominations and queue items carry `genre`/`round`. Votes stay one value per

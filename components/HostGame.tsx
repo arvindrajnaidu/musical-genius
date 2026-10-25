@@ -11,7 +11,6 @@ import {
   watchPlay,
   watchQueue,
   watchVotes,
-  DEFAULT_SETTINGS,
   genresOf,
   type Member,
   type Play,
@@ -20,10 +19,6 @@ import {
 } from "@/lib/room";
 import { enterFullscreen, toggleFullscreen } from "@/lib/fullscreen";
 import { YouTubePlayer } from "./YouTubePlayer";
-
-const REVEAL_MS = 8000;
-// The last reveal of a round also announces the round winner, so it stays up longer.
-const ROUND_END_MS = 12000;
 
 type Props = {
   code: string;
@@ -56,7 +51,7 @@ export function HostGame({ code, meta, settings, members, onNewRoom }: Props) {
     return <Nominating code={code} settings={settings} members={members} nominations={nominations} />;
   }
   if (meta.status === "playing" && play && queue[play.index]) {
-    return <Playing code={code} settings={settings} queue={queue} play={play} votes={votes} members={members} />;
+    return <Playing code={code} queue={queue} play={play} votes={votes} members={members} />;
   }
   if (meta.status === "finished") {
     return <Results code={code} queue={queue} votes={votes} onNewRoom={onNewRoom} />;
@@ -135,14 +130,12 @@ function Nominating({
 
 function Playing({
   code,
-  settings,
   queue,
   play,
   votes,
   members,
 }: {
   code: string;
-  settings: RoomSettings;
   queue: QueueItem[];
   play: Play;
   votes: Votes;
@@ -150,8 +143,6 @@ function Playing({
 }) {
   const { index, phase } = play;
   const song = queue[index];
-  const clip = settings.clipSeconds ?? DEFAULT_SETTINGS.clipSeconds;
-  const [startedAt, setStartedAt] = useState<{ index: number; at: number } | null>(null);
   const [failed, setFailed] = useState<number | null>(null);
   const round = song.round ?? 0;
   const inRound = roundSongs(queue, round);
@@ -169,19 +160,8 @@ function Playing({
   );
   const reveal = useMemo(() => () => setPlay(code, { index, phase: "reveal" }), [code, index]);
 
-  // End the clip `clip` seconds after the song actually started playing.
-  useEffect(() => {
-    if (phase !== "playing" || clip <= 0 || startedAt?.index !== index) return;
-    const t = setTimeout(reveal, Math.max(0, clip * 1000 - (Date.now() - startedAt.at)));
-    return () => clearTimeout(t);
-  }, [phase, clip, startedAt, index, reveal]);
-
-  // Reveal stays up for a few seconds, then the next song starts.
-  useEffect(() => {
-    if (phase !== "reveal") return;
-    const t = setTimeout(next, roundOver ? ROUND_END_MS : REVEAL_MS);
-    return () => clearTimeout(t);
-  }, [phase, next, roundOver]);
+  // Songs always play in full and nothing moves on by itself: the host decides
+  // when to reveal and when the next song starts, however many have voted.
 
   // A video the uploader won't let us embed: say so briefly and move on.
   useEffect(() => {
@@ -199,7 +179,6 @@ function Playing({
       <YouTubePlayer
         className="absolute inset-0"
         videoId={song.videoId}
-        onStarted={() => setStartedAt({ index, at: Date.now() })}
         onEnded={() => phase === "playing" && reveal()}
         onError={() => setFailed(index)}
       />
@@ -216,15 +195,14 @@ function Playing({
           <button onClick={toggleFullscreen} aria-label="Full screen" className="rounded-full bg-black/50 px-5 py-3 text-2xl backdrop-blur">
             ⛶
           </button>
-          {phase === "playing" ? (
-            <button onClick={reveal} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
+          {phase === "playing" && (
+            <button onClick={reveal} className="rounded-full bg-black/50 px-6 py-3 text-2xl font-semibold backdrop-blur">
               Reveal
             </button>
-          ) : (
-            <button onClick={next} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
-              {last ? "Show results" : roundOver ? "Next round" : "Next song"}
-            </button>
           )}
+          <button onClick={next} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
+            {last ? "Show results" : roundOver ? "Next round" : "Next song"}
+          </button>
         </div>
       </div>
 
@@ -294,16 +272,6 @@ function Playing({
           </p>
         )}
       </div>
-
-      {phase === "playing" && clip > 0 && startedAt?.index === index && (
-        <div className="absolute inset-x-0 bottom-0 h-2 bg-white/10">
-          <div
-            key={index}
-            className="h-full origin-left bg-white/80"
-            style={{ animation: `clip-progress ${clip}s linear forwards` }}
-          />
-        </div>
-      )}
     </div>
   );
 }
