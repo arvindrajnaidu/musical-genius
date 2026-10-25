@@ -56,6 +56,16 @@
               ".validate": "newData.isNumber() && (newData.val() === 1 || newData.val() === -1)"
             }
           }
+        },
+        "roundVotes": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms/'+$code+'/meta/hostUid').val() === auth.uid",
+          "$round": {
+            "$uid": {
+              ".write": "auth != null && $uid === auth.uid && root.child('rooms/'+$code+'/members/'+auth.uid).exists() && root.child('rooms/'+$code+'/play/phase').val() === 'recap' && root.child('rooms/'+$code+'/play/round').val() + '' === $round",
+              ".validate": "newData.isNumber() && root.child('rooms/'+$code+'/queue/'+newData.val()+'/round').val() + '' === $round && root.child('rooms/'+$code+'/queue/'+newData.val()+'/by').val() !== auth.uid"
+            }
+          }
         }
       }
     }

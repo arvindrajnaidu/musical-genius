@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { buildQueue, roundSongs, tally, type Nomination, type QueueItem, type Votes } from "@/lib/game";
+import { buildQueue, roundSongs, tally, type Nomination, type QueueItem, type RoundVotes, type SongResult, type Votes } from "@/lib/game";
 import {
   resetGame,
+  serverNow,
   setPlay,
   setStatus,
   startMusic,
   watchAllNominations,
   watchPlay,
   watchQueue,
+  watchRoundVotes,
   watchVotes,
   genresOf,
   type Member,
@@ -26,6 +28,10 @@ const FADE_OUT_MS = 2500;
 // Without volume control (iPad Safari) the music can't fade, so cut sooner.
 const CUT_MS = 800;
 const BREAK_MS = 3000;
+// After a round's last song: everyone can move their vote for this long.
+const RECAP_MS = 15000;
+// The song keeps playing quietly under the recap and the round winner.
+const DUCKED = 25;
 
 type Props = {
   code: string;
@@ -43,6 +49,7 @@ export function HostGame({ code, meta, settings, members, onNewRoom }: Props) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [play, setPlayState] = useState<Play | null>(null);
   const [votes, setVotes] = useState<Votes>({});
+  const [roundVotes, setRoundVotes] = useState<RoundVotes>({});
 
   useEffect(() => {
     const offs = [
@@ -50,6 +57,7 @@ export function HostGame({ code, meta, settings, members, onNewRoom }: Props) {
       watchQueue(code, setQueue),
       watchPlay(code, setPlayState),
       watchVotes(code, setVotes),
+      watchRoundVotes(code, setRoundVotes),
     ];
     return () => offs.forEach((off) => off());
   }, [code]);
@@ -58,10 +66,12 @@ export function HostGame({ code, meta, settings, members, onNewRoom }: Props) {
     return <Nominating code={code} settings={settings} members={members} nominations={nominations} />;
   }
   if (meta.status === "playing" && play && queue[play.index]) {
-    return <Playing code={code} queue={queue} play={play} votes={votes} members={members} />;
+    return (
+      <Playing code={code} queue={queue} play={play} votes={votes} roundVotes={roundVotes} members={members} />
+    );
   }
   if (meta.status === "finished") {
-    return <Results code={code} queue={queue} votes={votes} onNewRoom={onNewRoom} />;
+    return <Results code={code} queue={queue} votes={votes} roundVotes={roundVotes} onNewRoom={onNewRoom} />;
   }
   return <p className="text-3xl text-white/70">Loading…</p>;
 }
@@ -140,12 +150,14 @@ function Playing({
   queue,
   play,
   votes,
+  roundVotes,
   members,
 }: {
   code: string;
   queue: QueueItem[];
   play: Play;
   votes: Votes;
+  roundVotes: RoundVotes;
   members: Record<string, Member>;
 }) {
   const { index, phase } = play;
@@ -161,7 +173,7 @@ function Playing({
   const rounds = new Set(queue.map((q) => q.round ?? 0)).size;
   const roundOver = inRound[inRound.length - 1] === index;
   // Live: a vote that moves on to a later song leaves this one.
-  const scores = tally(queue, votes);
+  const scores = tally(queue, votes, roundVotes);
   const here = scores.songs[index];
   const winners = scores.rounds.find((r) => r.round === round)?.winners ?? [];
   const last = index + 1 >= queue.length;
@@ -188,6 +200,19 @@ function Playing({
     return () => clearTimeout(t);
   }, [stage.name]);
   const reveal = useMemo(() => () => setPlay(code, { index, phase: "reveal" }), [code, index]);
+  // After a round's last song: a short window to move votes, then the winner.
+  const recap = useMemo(
+    () => () => setPlay(code, { index, phase: "recap", round, endsAt: serverNow() + RECAP_MS }),
+    [code, index, round],
+  );
+  const announce = useMemo(() => () => setPlay(code, { index, phase: "winner", round }), [code, index, round]);
+  const endOfSong = roundOver ? recap : reveal;
+
+  useEffect(() => {
+    if (phase !== "recap") return;
+    const t = setTimeout(announce, Math.max(0, (play.endsAt ?? 0) - serverNow()));
+    return () => clearTimeout(t);
+  }, [phase, play.endsAt, announce]);
 
   // Songs always play in full and nothing moves on by itself: the host decides
   // when to reveal and when the next song starts, however many have voted.
@@ -195,9 +220,9 @@ function Playing({
   // A video the uploader won't let us embed: say so briefly and move on.
   useEffect(() => {
     if (failed !== index) return;
-    const t = setTimeout(next, 3000);
+    const t = setTimeout(roundOver ? recap : next, 3000);
     return () => clearTimeout(t);
-  }, [failed, index, next]);
+  }, [failed, index, next, recap, roundOver]);
 
   const voted = new Set(here.voters);
   const voterNames = Object.entries(members).filter(([uid]) => uid !== song.by);
@@ -209,9 +234,9 @@ function Playing({
         className="absolute inset-0"
         videoId={song.videoId}
         paused={stage.name === "break"}
-        volume={stage.name === "live" ? 100 : 0}
+        volume={stage.name !== "live" ? 0 : phase === "recap" || phase === "winner" ? DUCKED : 100}
         fadeMs={FADE_OUT_MS}
-        onEnded={() => phase === "playing" && reveal()}
+        onEnded={() => phase === "playing" && endOfSong()}
         onError={() => setFailed(index)}
         onVolumeSupport={setCanFade}
       />
@@ -233,17 +258,27 @@ function Playing({
           <button onClick={toggleFullscreen} aria-label="Full screen" className="rounded-full bg-black/50 px-5 py-3 text-2xl backdrop-blur">
             ⛶
           </button>
-          {phase === "playing" && (
+          {phase === "playing" && !roundOver && (
             <button onClick={reveal} className="rounded-full bg-black/50 px-6 py-3 text-2xl font-semibold backdrop-blur">
               Reveal
             </button>
           )}
           <button
-            onClick={next}
+            onClick={
+              phase === "recap" ? announce : phase === "winner" || !roundOver ? next : recap
+            }
             disabled={stage.name !== "live"}
             className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage disabled:opacity-40"
           >
-            {last ? "Show results" : roundOver ? "Next round" : "Next song"}
+            {phase === "recap"
+              ? "Close voting"
+              : phase === "winner"
+                ? last
+                  ? "Show results"
+                  : "Next round"
+                : roundOver
+                  ? "Final votes"
+                  : "Next song"}
           </button>
         </div>
       </div>
@@ -264,30 +299,26 @@ function Playing({
             <p className="text-3xl text-white/70">Picked by</p>
             <p className="font-display text-8xl font-bold">{song.byName}</p>
             <p className="text-6xl font-bold">
-              ❤️ {here.votes} <span className="text-3xl font-semibold text-white/60">{roundOver ? "votes" : "so far"}</span>
+              ❤️ {here.votes} <span className="text-3xl font-semibold text-white/60">so far</span>
             </p>
-            {roundOver && (
-              <div className="mt-4 flex flex-col items-center gap-2 border-t border-white/20 pt-6">
-                <p className="text-2xl uppercase tracking-widest text-white/60">
-                  {song.genre || `Round ${round + 1}`} round winner
-                </p>
-                {winners.length === 0 ? (
-                  <p className="text-4xl font-semibold">No votes this round</p>
-                ) : (
-                  winners.map((w) => (
-                    <p key={w.index} className="text-4xl font-semibold">
-                      🏆 {w.item.title} <span className="text-white/60">by {w.item.byName}</span>
-                      <span className="ml-3 text-like">❤️ {w.votes}</span>
-                    </p>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-10 pb-10 pt-32">
+      {(phase === "recap" || phase === "winner") && (
+        <RoundRecap
+          phase={phase}
+          endsAt={play.endsAt ?? 0}
+          songs={scores.songs.filter((s) => (s.item.round ?? 0) === round)}
+          genre={song.genre || `Round ${round + 1}`}
+          winners={winners.map((w) => w.index)}
+          members={members}
+        />
+      )}
+
+      <div
+        className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-10 pb-10 pt-32 ${phase === "recap" || phase === "winner" ? "hidden" : ""}`}
+      >
         <div className="flex items-end justify-between gap-10">
           <div className="min-w-0">
             <h2 className="truncate font-display text-6xl font-bold leading-tight drop-shadow-lg">{song.title}</h2>
@@ -317,6 +348,90 @@ function Playing({
             One vote per round on your phone · your last vote counts · who picked it? Find out after the song
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function RoundRecap({
+  phase,
+  endsAt,
+  songs,
+  genre,
+  winners,
+  members,
+}: {
+  phase: "recap" | "winner";
+  endsAt: number;
+  songs: SongResult[];
+  genre: string;
+  winners: number[];
+  members: Record<string, Member>;
+}) {
+  const [now, setNow] = useState(serverNow);
+  useEffect(() => {
+    if (phase !== "recap") return;
+    const t = setInterval(() => setNow(serverNow()), 250);
+    return () => clearInterval(t);
+  }, [phase]);
+  const left = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const ranked = phase === "winner" ? songs.slice().sort((a, b) => b.votes - a.votes) : songs;
+  const top = songs.filter((s) => winners.includes(s.index));
+
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-stage/80 p-16 backdrop-blur-md">
+      <div className="flex w-full max-w-6xl flex-col gap-8">
+        {phase === "recap" ? (
+          <div className="flex items-end justify-between gap-8">
+            <div>
+              <p className="text-3xl uppercase tracking-[0.3em] text-white/60">{genre} · last call</p>
+              <h2 className="font-display text-7xl font-bold">Change your vote?</h2>
+              <p className="mt-2 text-3xl text-white/70">Pick any song from this round on your phone</p>
+            </div>
+            <p className={`font-display text-[10rem] leading-none font-bold tabular-nums ${left <= 5 ? "text-nope" : ""}`}>{left}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="text-3xl uppercase tracking-[0.3em] text-white/60">{genre} round winner</p>
+            {top.length === 0 ? (
+              <h2 className="font-display text-7xl font-bold">No votes this round</h2>
+            ) : (
+              top.map((w) => (
+                <h2 key={w.index} className="font-display text-7xl font-bold">
+                  🏆 {w.item.byName}
+                  <span className="block text-4xl font-semibold text-white/80">{w.item.title}</span>
+                </h2>
+              ))
+            )}
+          </div>
+        )}
+        <ul className="flex flex-col gap-3">
+          {ranked.map((s) => (
+            <li
+              key={s.index}
+              className={`flex items-center gap-6 rounded-3xl px-8 py-4 transition-all ${
+                phase === "winner" && winners.includes(s.index) ? "bg-like text-stage" : "bg-white/10"
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-3xl font-semibold">{s.item.title}</p>
+                <p className="truncate text-2xl opacity-60">
+                  {phase === "winner" ? `Picked by ${s.item.byName}` : s.item.channel}
+                </p>
+              </div>
+              {phase === "recap" && (
+                <ul className="flex max-w-[30%] flex-wrap justify-end gap-2">
+                  {s.voters.map((uid) => (
+                    <li key={uid} className="rounded-full bg-white px-3 py-1 text-lg font-semibold text-stage">
+                      {members[uid]?.name ?? "?"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="w-28 shrink-0 text-right text-5xl font-bold">❤️ {s.votes}</p>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
@@ -370,14 +485,16 @@ function Results({
   code,
   queue,
   votes,
+  roundVotes,
   onNewRoom,
 }: {
   code: string;
   queue: QueueItem[];
   votes: Votes;
+  roundVotes: RoundVotes;
   onNewRoom: () => void;
 }) {
-  const { players, rounds } = tally(queue, votes);
+  const { players, rounds } = tally(queue, votes, roundVotes);
   const winner = players[0];
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-10 text-center">

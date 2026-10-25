@@ -7,9 +7,11 @@
 //   rooms/<CODE>/members/<uid>           { name, online, joinedAt } (each player writes their own)
 //   rooms/<CODE>/nominations/<uid>/<id>  Nomination (player writes own; only they and the host read)
 //   rooms/<CODE>/queue                   QueueItem[] (host writes when the music starts)
-//   rooms/<CODE>/play                    { index, phase, startedAt } (host drives playback)
+//   rooms/<CODE>/play                    { index, phase, startedAt, round?, endsAt? } (host drives playback)
 //   rooms/<CODE>/votes/<index>/<uid>     1 (player writes own, only while that song plays;
 //                                        see lib/game.ts for how that becomes one vote per round)
+//   rooms/<CODE>/roundVotes/<round>/<uid> songIndex (player writes own, only during that
+//                                        round's recap; overrides their per-song votes)
 import { siteOrigin } from "./site";
 import {
   ref,
@@ -23,7 +25,7 @@ import {
   serverTimestamp,
 } from "firebase/database";
 import { db } from "./firebase/client";
-import type { Nomination, QueueItem, Vote, Votes } from "./game";
+import type { Nomination, QueueItem, RoundVotes, Vote, Votes } from "./game";
 
 export type RoomStatus = "lobby" | "nominating" | "playing" | "finished";
 
@@ -34,8 +36,16 @@ export type RoomMeta = { hostUid: string; status: RoomStatus; createdAt: number 
 // clipSeconds: how much of each song plays before the reveal (0 = whole song).
 export type RoomSettings = { genres?: string[]; rounds: number; theme: string; clipSeconds: number };
 // "playing" while the song is on and votes are open; "reveal" shows who picked it
-// and the tally before the next song.
-export type Play = { index: number; phase: "playing" | "reveal"; startedAt: number };
+// and the tally before the next song. After a round's last song, "recap" lists
+// the round's songs and lets everyone move their vote until endsAt (server
+// time), then "winner" announces the round winner.
+export type Play = {
+  index: number;
+  phase: "playing" | "reveal" | "recap" | "winner";
+  startedAt: number;
+  round?: number;
+  endsAt?: number;
+};
 export type Member = { name: string; online: boolean; joinedAt: number };
 
 export const DEFAULT_SETTINGS: RoomSettings = { genres: [], rounds: 1, theme: "", clipSeconds: 0 };
@@ -181,6 +191,7 @@ export async function startMusic(code: string, queue: QueueItem[]): Promise<void
   await update(ref(database()), {
     [`${base(code)}/queue`]: queue,
     [`${base(code)}/votes`]: null,
+    [`${base(code)}/roundVotes`]: null,
     [`${base(code)}/play`]: { index: 0, phase: "playing", startedAt: serverTimestamp() },
     [`${base(code)}/meta/status`]: "playing",
   });
@@ -194,6 +205,7 @@ export async function resetGame(code: string): Promise<void> {
     [`${base(code)}/nominations`]: null,
     [`${base(code)}/queue`]: null,
     [`${base(code)}/votes`]: null,
+    [`${base(code)}/roundVotes`]: null,
     [`${base(code)}/play`]: null,
     [`${base(code)}/meta/status`]: "lobby",
   });
@@ -201,10 +213,29 @@ export async function resetGame(code: string): Promise<void> {
 export const watchQueue = (code: string, cb: (q: QueueItem[]) => void) =>
   watch<QueueItem[]>(`${base(code)}/queue`, (v) => cb(v || []));
 export const watchPlay = (code: string, cb: (p: Play | null) => void) => watch<Play>(`${base(code)}/play`, cb);
+export const watchRoundVotes = (code: string, cb: (v: RoundVotes) => void) =>
+  watch<RoundVotes>(`${base(code)}/roundVotes`, (v) => cb(v || {}));
 export const watchVotes = (code: string, cb: (v: Votes) => void) =>
   watch<Votes>(`${base(code)}/votes`, (v) => cb(v || {}));
 
 // ---- voting (phones) ----
+// During a round's recap: put my vote for the round on any of its songs.
+export async function setRoundVote(code: string, round: number, uid: string, index: number): Promise<void> {
+  await set(ref(database(), `${base(code)}/roundVotes/${round}/${uid}`), index);
+}
+
+// The clock everyone's countdown runs on: this device's time corrected by
+// Firebase's measured offset, so the TV and phones agree on endsAt.
+let serverOffset = 0;
+let offsetWatched = false;
+export function serverNow(): number {
+  if (!offsetWatched && db) {
+    offsetWatched = true;
+    onValue(ref(db, ".info/serverTimeOffset"), (s) => (serverOffset = s.val() || 0));
+  }
+  return Date.now() + serverOffset;
+}
+
 export async function vote(code: string, index: number, uid: string, v: Vote = 1): Promise<void> {
   await set(ref(database(), `${base(code)}/votes/${index}/${uid}`), v);
 }

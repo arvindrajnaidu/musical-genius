@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { roundSongs, roundVote, tally, type Nomination, type QueueItem, type Votes } from "@/lib/game";
+import { roundSongs, roundVote, tally, type Nomination, type QueueItem, type RoundVotes, type Votes } from "@/lib/game";
 import {
   genresOf,
   nominateForGenre,
+  serverNow,
+  setRoundVote,
   vote,
   watchMyNominations,
   watchPlay,
   watchQueue,
+  watchRoundVotes,
   watchVotes,
   type Play,
   type RoomMeta,
@@ -309,14 +312,20 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [play, setPlay] = useState<Play | null>(null);
   const [votes, setVotes] = useState<Votes>({});
+  const [roundVotes, setRoundVotes] = useState<RoundVotes>({});
 
   useEffect(() => {
-    const offs = [watchQueue(code, setQueue), watchPlay(code, setPlay), watchVotes(code, setVotes)];
+    const offs = [
+      watchQueue(code, setQueue),
+      watchPlay(code, setPlay),
+      watchVotes(code, setVotes),
+      watchRoundVotes(code, setRoundVotes),
+    ];
     return () => offs.forEach((off) => off());
   }, [code]);
 
   if (finished) {
-    const { players } = tally(queue, votes);
+    const { players } = tally(queue, votes, roundVotes);
     const rank = players.findIndex((p) => p.uid === uid);
     const me = players[rank];
     return (
@@ -340,7 +349,25 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
   const inRound = roundSongs(queue, round);
   const rounds = new Set(queue.map((q) => q.round ?? 0)).size;
   const mine = song.by === uid;
-  const at = roundVote(queue, votes, round, uid);
+  const at = roundVote(queue, votes, round, uid, roundVotes);
+
+  if (play.phase === "recap" || play.phase === "winner") {
+    return (
+      <Recap
+        queue={queue}
+        inRound={inRound}
+        uid={uid}
+        at={at}
+        genre={song.genre || `Round ${round + 1}`}
+        endsAt={play.phase === "recap" ? (play.endsAt ?? 0) : 0}
+        winners={tally(queue, votes, roundVotes).rounds.find((r) => r.round === round)?.winners.map((w) => w.index) ?? []}
+        onPick={(i) => {
+          setRoundVote(code, round, uid, i).catch(console.error);
+          buzz();
+        }}
+      />
+    );
+  }
   const here = at === play.index;
   const cast = () => {
     vote(code, play.index, uid);
@@ -386,6 +413,86 @@ function PlayAndVote({ code, uid, finished }: { code: string; uid: string; finis
       {play.phase === "playing" && mine && at !== undefined && (
         <p className="text-white/60">Your vote this round is on “{queue[at].title}”.</p>
       )}
+    </div>
+  );
+}
+
+// After a round's last song: every song in the round, with your vote on one.
+// Tap another to move it until the countdown runs out; then the round winner.
+function Recap({
+  queue,
+  inRound,
+  uid,
+  at,
+  genre,
+  endsAt,
+  winners,
+  onPick,
+}: {
+  queue: QueueItem[];
+  inRound: number[];
+  uid: string;
+  at: number | undefined;
+  genre: string;
+  endsAt: number;
+  winners: number[];
+  onPick: (index: number) => void;
+}) {
+  const [now, setNow] = useState(serverNow);
+  useEffect(() => {
+    if (!endsAt) return;
+    const t = setInterval(() => setNow(serverNow()), 250);
+    return () => clearInterval(t);
+  }, [endsAt]);
+  const left = endsAt ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0;
+  const open = left > 0;
+
+  return (
+    <div className="flex w-full max-w-sm flex-col gap-4 text-center">
+      <p className="text-sm uppercase tracking-widest text-white/60">{genre}</p>
+      {endsAt ? (
+        <>
+          <h1 className="font-display text-3xl font-bold">
+            {open ? "Last call!" : "Voting closed"}{" "}
+            <span className={`tabular-nums ${left <= 5 ? "text-nope" : "text-white/60"}`}>{open && left}</span>
+          </h1>
+          <p className="text-white/70">
+            {open ? "Your vote for this round can go to any song. Tap to move it." : "Watch the TV for the winner."}
+          </p>
+        </>
+      ) : (
+        <h1 className="font-display text-3xl font-bold">
+          {winners.length ? "Round winner!" : "No votes this round"}
+        </h1>
+      )}
+      <ul className="flex flex-col gap-2">
+        {inRound.map((i) => {
+          const s = queue[i];
+          const own = s.by === uid;
+          const here = at === i;
+          const won = !endsAt && winners.includes(i);
+          return (
+            <li key={i}>
+              <button
+                disabled={own || !open}
+                onClick={() => onPick(i)}
+                aria-pressed={here}
+                className={`flex w-full items-center gap-3 rounded-2xl p-2 text-left transition ${
+                  won ? "bg-like text-stage" : here ? "bg-white text-stage" : "bg-white/10"
+                } ${own ? "opacity-50" : ""}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- remote YouTube thumbnail, static export */}
+                <img src={thumbUrl(s.videoId)} alt="" className="h-12 w-20 rounded-lg object-cover" />
+                <span className="flex-1 text-sm leading-tight">
+                  {s.title}
+                  <span className="block opacity-60">{own ? "Your pick" : endsAt ? s.channel : `Picked by ${s.byName}`}</span>
+                </span>
+                <span className="px-2 text-2xl">{won ? "🏆" : here ? "❤️" : ""}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

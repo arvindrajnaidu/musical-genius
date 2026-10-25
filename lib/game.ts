@@ -4,7 +4,8 @@
 // A game is a list of genres, one round each. Every player picks one song per
 // genre; a round plays that genre's songs back to back. Each player has one
 // vote per round: voting on a later song in the round moves it there (the last
-// vote counts). Most votes over all rounds wins.
+// vote counts), and after the round a short recap lets everyone move it to any
+// of the round's songs. Most votes over all rounds wins.
 
 export type Nomination = { videoId: string; title: string; channel: string; at: number; genre?: string };
 export type QueueItem = {
@@ -23,6 +24,8 @@ export type Vote = 1 | -1;
 // is playing, so a vote can't be taken back from an earlier song; instead the
 // latest song a voter voted on in a round is where their vote sits.
 export type Votes = Record<string, Record<string, Vote>>;
+// roundVotes[round][voterUid] = queue index, set during the round's recap.
+export type RoundVotes = Record<string, Record<string, number>>;
 
 // Round by round in genre order. Within a round, player order is shuffled so the
 // same person doesn't always open, and nobody gets two songs in a row across a
@@ -76,9 +79,19 @@ const roundOf = (item: QueueItem) => item.round ?? 0;
 export const roundSongs = (queue: QueueItem[], round: number) =>
   queue.flatMap((item, index) => (roundOf(item) === round ? [index] : []));
 
-// Where a voter's vote for a round currently sits: the latest song in that
-// round they voted on, never their own. undefined if they haven't voted.
-export function roundVote(queue: QueueItem[], votes: Votes, round: number, uid: string): number | undefined {
+// Where a voter's vote for a round currently sits: their recap choice if they
+// made a valid one, else the latest song in that round they voted on; never
+// their own song. undefined if they haven't voted.
+export function roundVote(
+  queue: QueueItem[],
+  votes: Votes,
+  round: number,
+  uid: string,
+  roundVotes: RoundVotes = {},
+): number | undefined {
+  const chosen = roundVotes[String(round)]?.[uid];
+  if (typeof chosen === "number" && queue[chosen] && roundOf(queue[chosen]) === round && queue[chosen].by !== uid)
+    return chosen;
   const songs = roundSongs(queue, round);
   for (let i = songs.length - 1; i >= 0; i--) {
     const index = songs[i];
@@ -94,13 +107,15 @@ export type RoundResult = { round: number; genre: string; winners: SongResult[] 
 // Each voter's vote per round lands on one song (see roundVote). A player's
 // score is the votes their songs hold; a round's winners are its top songs
 // (ties share, and a round nobody voted in has none).
-export function tally(queue: QueueItem[], votes: Votes) {
+export function tally(queue: QueueItem[], votes: Votes, roundVotes: RoundVotes = {}) {
   const voters: string[][] = queue.map(() => []);
   const rounds = [...new Set(queue.map(roundOf))].sort((a, b) => a - b);
-  const everyone = new Set(Object.values(votes || {}).flatMap((v) => Object.keys(v || {})));
+  const everyone = new Set(
+    [...Object.values(votes || {}), ...Object.values(roundVotes || {})].flatMap((v) => Object.keys(v || {})),
+  );
   for (const round of rounds) {
     for (const uid of everyone) {
-      const index = roundVote(queue, votes || {}, round, uid);
+      const index = roundVote(queue, votes || {}, round, uid, roundVotes || {});
       if (index !== undefined) voters[index].push(uid);
     }
   }
