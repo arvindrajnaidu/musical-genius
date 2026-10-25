@@ -20,6 +20,13 @@ import {
 import { enterFullscreen, toggleFullscreen } from "@/lib/fullscreen";
 import { YouTubePlayer } from "./YouTubePlayer";
 
+// DJ-style hand-off between songs: the current one fades out under a dimming
+// screen, an "Up next" card holds for a beat, then the next song fades in.
+const FADE_OUT_MS = 2500;
+// Without volume control (iPad Safari) the music can't fade, so cut sooner.
+const CUT_MS = 800;
+const BREAK_MS = 3000;
+
 type Props = {
   code: string;
   meta: RoomMeta;
@@ -144,6 +151,11 @@ function Playing({
   const { index, phase } = play;
   const song = queue[index];
   const [failed, setFailed] = useState<number | null>(null);
+  // live → fading (old song fades out) → break ("Up next" card, next song
+  // cued but paused) → live (next song fades in). TV-local: phones switch to
+  // the next song as the card appears.
+  const [stage, setStage] = useState<{ name: "live" | "fading" | "break"; from?: number }>({ name: "live" });
+  const [canFade, setCanFade] = useState(true);
   const round = song.round ?? 0;
   const inRound = roundSongs(queue, round);
   const rounds = new Set(queue.map((q) => q.round ?? 0)).size;
@@ -155,9 +167,26 @@ function Playing({
   const last = index + 1 >= queue.length;
 
   const next = useMemo(
-    () => () => (last ? setStatus(code, "finished") : setPlay(code, { index: index + 1, phase: "playing" })),
-    [code, index, last],
+    () => () => {
+      if (stage.name !== "live") return;
+      setStage({ name: "fading" });
+      setTimeout(
+        () => {
+          if (last) return setStatus(code, "finished");
+          setStage({ name: "break", from: index });
+          setPlay(code, { index: index + 1, phase: "playing" });
+        },
+        canFade ? FADE_OUT_MS : CUT_MS,
+      );
+    },
+    [code, index, last, stage.name, canFade],
   );
+
+  useEffect(() => {
+    if (stage.name !== "break") return;
+    const t = setTimeout(() => setStage({ name: "live" }), BREAK_MS);
+    return () => clearTimeout(t);
+  }, [stage.name]);
   const reveal = useMemo(() => () => setPlay(code, { index, phase: "reveal" }), [code, index]);
 
   // Songs always play in full and nothing moves on by itself: the host decides
@@ -179,11 +208,20 @@ function Playing({
       <YouTubePlayer
         className="absolute inset-0"
         videoId={song.videoId}
+        paused={stage.name === "break"}
+        volume={stage.name === "live" ? 100 : 0}
+        fadeMs={FADE_OUT_MS}
         onEnded={() => phase === "playing" && reveal()}
         onError={() => setFailed(index)}
+        onVolumeSupport={setCanFade}
       />
       {/* Clicks go to our buttons, never to YouTube's own UI. */}
       <div className="absolute inset-0" />
+      {/* The screen dims with the music. */}
+      <div
+        className={`pointer-events-none absolute inset-0 bg-black transition-opacity ease-in-out ${stage.name === "live" ? "opacity-0" : "opacity-80"}`}
+        style={{ transitionDuration: `${canFade ? FADE_OUT_MS : CUT_MS}ms` }}
+      />
 
       <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-8 pb-24">
         <p className="rounded-full bg-black/50 px-6 py-3 text-2xl font-semibold backdrop-blur">
@@ -200,13 +238,21 @@ function Playing({
               Reveal
             </button>
           )}
-          <button onClick={next} className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage">
+          <button
+            onClick={next}
+            disabled={stage.name !== "live"}
+            className="rounded-full bg-white/90 px-6 py-3 text-2xl font-semibold text-stage disabled:opacity-40"
+          >
             {last ? "Show results" : roundOver ? "Next round" : "Next song"}
           </button>
         </div>
       </div>
 
-      {failed === index && (
+      {stage.name === "break" && (
+        <UpNext song={song} prev={stage.from !== undefined ? queue[stage.from] : undefined} queue={queue} index={index} />
+      )}
+
+      {failed === index && stage.name === "live" && (
         <div className="absolute inset-0 flex items-center justify-center bg-stage/90 text-5xl">
           This one can&apos;t play here. Skipping…
         </div>
@@ -271,6 +317,50 @@ function Playing({
             One vote per round on your phone · your last vote counts · who picked it? Find out after the song
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function UpNext({
+  song,
+  prev,
+  queue,
+  index,
+}: {
+  song: QueueItem;
+  prev?: QueueItem;
+  queue: QueueItem[];
+  index: number;
+}) {
+  const round = song.round ?? 0;
+  const inRound = roundSongs(queue, round);
+  const newRound = prev !== undefined && (prev.round ?? 0) !== round;
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-stage/70 backdrop-blur-xl">
+      <div className="flex flex-col items-center gap-6 text-center">
+        <p className="text-3xl uppercase tracking-[0.3em] text-white/60">Up next</p>
+        {newRound ? (
+          <p className="font-display text-9xl font-bold">
+            Round {round + 1}
+            {song.genre && <span className="block text-7xl text-white/80">{song.genre}</span>}
+          </p>
+        ) : (
+          <p className="font-display text-8xl font-bold">
+            Song {inRound.indexOf(index) + 1} <span className="text-white/50">of {inRound.length}</span>
+          </p>
+        )}
+        <p className="text-3xl text-white/60">
+          {newRound ? `Song 1 of ${inRound.length}` : `${song.genre ? `${song.genre} · ` : ""}Round ${round + 1}`} · get
+          your vote ready ❤️
+        </p>
+        <div className="mt-4 h-2 w-96 overflow-hidden rounded-full bg-white/15">
+          <div
+            key={index}
+            className="h-full origin-left bg-white/80"
+            style={{ animation: `fill-bar ${BREAK_MS}ms linear forwards` }}
+          />
+        </div>
       </div>
     </div>
   );
